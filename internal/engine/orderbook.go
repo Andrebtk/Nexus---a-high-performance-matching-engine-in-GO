@@ -1,4 +1,4 @@
-package main 
+package engine 
 
 import (
 	"sort"
@@ -88,28 +88,28 @@ func (ob *OrderBook) RemovePrice(price uint64, isBuy bool) {
 
 
 func (ob *OrderBook) matchBuy(o *Order) {
-	for o.quantity > 0 && len(ob.askPrices) > 0 {
+	for o.Quantity > 0 && len(ob.askPrices) > 0 {
 		bestAsk := ob.askPrices[0]
 		
-		if o.price < bestAsk {
+		if o.Price < bestAsk {
 			return 
 		} 
 
 
 		limit := ob.Asks[bestAsk]
 
-		for o.quantity >0 && !limit.doubleLinkedList.IsEmpty() {
+		for o.Quantity >0 && !limit.doubleLinkedList.IsEmpty() {
 			tmp := limit.doubleLinkedList.head 
 
-			if o.quantity >= tmp.quantity {
+			if o.Quantity >= tmp.Quantity {
 
-				remaining := tmp.quantity
+				remaining := tmp.Quantity
 				limit.Pop()
-				o.quantity -= remaining
+				o.Quantity -= remaining
 			} else {
-				tmp.quantity -= o.quantity
-				limit.totalVolume -= o.quantity
-				o.quantity = 0
+				tmp.Quantity -= o.Quantity
+				limit.TotalVolume -= o.Quantity
+				o.Quantity = 0
 			}
 		}
 
@@ -123,26 +123,26 @@ func (ob *OrderBook) matchBuy(o *Order) {
 }
 
 func (ob *OrderBook) matchSell(o *Order) {
-	for o.quantity > 0 && len(ob.bidPrices) > 0 {
+	for o.Quantity > 0 && len(ob.bidPrices) > 0 {
 		bestBid := ob.bidPrices[0]
-		if o.price > bestBid {
+		if o.Price > bestBid {
 			return 
 		}
 
 		limit := ob.Bids[bestBid]
 
-		for o.quantity > 0 && !limit.doubleLinkedList.IsEmpty() {
+		for o.Quantity > 0 && !limit.doubleLinkedList.IsEmpty() {
 			tmp := limit.doubleLinkedList.head 
 
-			if o.quantity >= tmp.quantity {
+			if o.Quantity >= tmp.Quantity {
 
-				remaining := tmp.quantity
+				remaining := tmp.Quantity
 				limit.Pop()
-				o.quantity -= remaining
+				o.Quantity -= remaining
 			} else {
-				tmp.quantity -= o.quantity
-				limit.totalVolume -= o.quantity
-				o.quantity = 0
+				tmp.Quantity -= o.Quantity
+				limit.TotalVolume -= o.Quantity
+				o.Quantity = 0
 			}
 		}
 
@@ -156,24 +156,24 @@ func (ob *OrderBook) matchSell(o *Order) {
 func (ob *OrderBook) placeMakerOrder(o *Order) {
 
 	var targetMap map[uint64]*Limit
-	if o.isBuy {
+	if o.IsBuy {
 		targetMap = ob.Bids
 	} else {
 		targetMap = ob.Asks
 	}
 
-	limit, ok := targetMap[o.price]
+	limit, ok := targetMap[o.Price]
 
 	if !ok {
-		limit = NewLimit(o.price)
-		targetMap[o.price] = limit
-		ob.addPrice(o.price, o.isBuy)
+		limit = NewLimit(o.Price)
+		targetMap[o.Price] = limit
+		ob.addPrice(o.Price, o.IsBuy)
 	}
 
 
 	limit.AddOrder(o)
 
-	ob.orders[o.id] = o
+	ob.orders[o.Id] = o
 }
 
 
@@ -182,14 +182,14 @@ func (ob *OrderBook) ProcessOrder(o *Order) {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
-	if o.isBuy {
+	if o.IsBuy {
 		ob.matchBuy(o)
 	} else {
 		ob.matchSell(o)
 	}
 
 
-	if o.quantity > 0 {
+	if o.Quantity > 0 {
 		ob.placeMakerOrder(o)
 	}
 }

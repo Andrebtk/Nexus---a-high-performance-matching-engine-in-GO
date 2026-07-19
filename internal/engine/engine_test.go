@@ -1,4 +1,4 @@
-package main 
+package engine 
 
 import (
 	"testing"
@@ -70,8 +70,8 @@ func TestPartialFillMakerLarger(t *testing.T) {
 		t.Fatalf("Error: Limit at 100 should still exist")
 	}
 
-	if limit.totalVolume != 6 {
-		t.Errorf("Error: Remaining Maker volume should be 6, got %d", limit.totalVolume)
+	if limit.TotalVolume != 6 {
+		t.Errorf("Error: Remaining Maker volume should be 6, got %d", limit.TotalVolume)
 	}
 
 }
@@ -120,8 +120,8 @@ func TestMassiveTaker(t *testing.T) {
 		t.Fatalf("Error: Taker should have turned into a Maker at 110")
 	}
 
-	if limit.totalVolume != 5 {
-		t.Errorf("Error: New Bid volume should be 5, got %d", limit.totalVolume)
+	if limit.TotalVolume != 5 {
+		t.Errorf("Error: New Bid volume should be 5, got %d", limit.TotalVolume)
 	}
 
 }
