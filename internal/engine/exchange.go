@@ -52,3 +52,14 @@ func (ex *Exchange) GetTickers() []string {
 	return tickers
 
 }
+
+func (ex *Exchange) GetOrderBook(symbol string) *OrderBook {
+	ex.mu.RLock()
+	defer ex.mu.RUnlock()
+
+	ob, exists := ex.books[symbol]
+	if !exists {
+		return nil
+	}
+	return ob
+}

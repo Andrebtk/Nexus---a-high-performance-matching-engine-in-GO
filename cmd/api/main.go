@@ -114,7 +114,7 @@ func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64, po
 func main() {
 	fmt.Println("Starting Nexus matching engine...")
 	ex := engine.NewExchange()
-	populate(ex)
+	//populate(ex)
 
 
 	fmt.Println("Starting Price Oracle...")

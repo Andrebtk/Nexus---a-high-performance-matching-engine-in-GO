@@ -2,6 +2,7 @@ package api
 
 import (
 	"Nexus/internal/engine"
+	"sort"
 	"net/http"
 	"github.com/gin-gonic/gin"
 )
@@ -27,17 +28,82 @@ func GetExchangeTickets(ex *engine.Exchange) gin.HandlerFunc {
 }
 
 
+func GetOrderBookHandler(ex *engine.Exchange) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		
+		symbol := c.Query("symbol")
+		if symbol == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing symbol parameter"})
+			return
+		}
 
+		ob := ex.GetOrderBook(symbol)
+		if ob == nil {
+			
+			c.JSON(http.StatusOK, gin.H{"bids": []interface{}{}, "asks": []interface{}{}})
+			return
+		}
+
+		type PriceLevel struct {
+			Price    float64 `json:"price"`
+			Quantity int     `json:"quantity"`
+		}
+
+		var bids []PriceLevel
+		var asks []PriceLevel
+
+		for price, limit := range ob.Bids {
+			bids = append(bids, PriceLevel{
+				Price:    float64(price),
+				Quantity: int(limit.TotalVolume),
+			})
+		}
+		for price, limit := range ob.Asks {
+			asks = append(asks, PriceLevel{
+				Price:    float64(price),
+				Quantity: int(limit.TotalVolume),
+			})
+		}
+
+		
+		sort.Slice(bids, func(i, j int) bool { return bids[i].Price > bids[j].Price }) 
+		sort.Slice(asks, func(i, j int) bool { return asks[i].Price < asks[j].Price }) 
+
+		c.JSON(http.StatusOK, gin.H{
+			"bids": bids,
+			"asks": asks,
+		})
+	}
+}
+
+
+
+
+func CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
 
 func StartAPI(ex *engine.Exchange) {
 	router := gin.Default()
 	router.SetTrustedProxies(nil)
 
+	router.Use(CORSMiddleware())
 	
 	router.GET("/testing", TestingHttp)
-
 	router.GET("/tickers", GetExchangeTickets(ex))
-
+	router.GET("/book", GetOrderBookHandler(ex))
 
 	router.Run("localhost:8080")
 }
