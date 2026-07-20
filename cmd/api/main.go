@@ -1,26 +1,14 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"time"
 	"math/rand"
-	"strconv"
 
 	"Nexus/internal/api"
 	"Nexus/internal/engine"
-
-	"github.com/twelvedata/twelvedata-go/twelvedata"
+	"Nexus/internal/oracle"
 )
-
-
-var tdClient *twelvedata.APIClient
-
-func initTwelveData(apiKey string) {
-	cfg, _ := twelvedata.NewConfig(apiKey)
-	tdClient = twelvedata.NewAPIClient(cfg)
-}
-
 
 func testOrderBook() {
 	ob := engine.NewOrderBook()
@@ -89,69 +77,35 @@ func populate(ex *engine.Exchange) {
 	fmt.Println("✅ AAPL, MSFT, NVDA, and TSLA markets successfully initialized !")
 }
 
-func fetchRealPrice(symbol string) (float64, error) {
-	resp, _, err := tdClient.MarketDataAPI.GetPrice(context.Background()).
-		Symbol(symbol).
-		Execute()
-	
-	if err != nil {
-		return 0, err
-	}
 
-	price, err := strconv.ParseFloat(resp.Price, 64)
-	if err != nil {
-		return 0, fmt.Errorf("could not parse price: %v", err)
-	}
-
-	return price, nil
-}
-
-
-
-func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64) {
+func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64, po *oracle.PriceOracle) {
 	tradeTicker := time.NewTicker(2 * time.Second)
-	priceTicker := time.NewTicker(30 * time.Second)
-
 	botID := "bot_maker_" + symbol
-	currentBasePrice := float64(fallbackPrice)
-
-	if price, err := fetchRealPrice(symbol); err == nil {
-		currentBasePrice = price
-		fmt.Printf("[INFO] Real price fetched for %s: $%.2f\n", symbol, currentBasePrice)
-	} else {
-		fmt.Printf("[WARN] %v. Using default price: $%d\n", err, fallbackPrice)
-	}
-
-
 
 	for {
-		select {
-			case <-priceTicker.C:
-				// Every 30 seconds, update the base price from the API
-				if price, err := fetchRealPrice(symbol); err == nil {
-					currentBasePrice = price
-				}
-			
-			case <-tradeTicker.C:
-				// Every 2 seconds, place a new order around the currentBasePrice
-				baseIntPrice := uint64(currentBasePrice)
-				
-				variation := int64(rand.Intn(5)) - 2
-				orderPrice := uint64(int64(baseIntPrice) + variation)
+		<-tradeTicker.C
 
-				isBuy := rand.Intn(2) == 0
-
-				order := &engine.Order{
-					Id:        fmt.Sprintf("%s_%d", botID, time.Now().UnixNano()),
-					Symbol:    symbol,
-					IsBuy:     isBuy,
-					Quantity:  rand.Intn(15) + 1,
-					Price:     orderPrice,
-					TimeStamp: time.Now(),
-				}
-				ex.RouteOrder(order)
-
+		// Le bot lit le prix en mémoire locale depuis l'Oracle (0 appel API ici !)
+		currentBasePrice := float64(fallbackPrice)
+		if p, ok := po.GetPrice(symbol); ok {
+			currentBasePrice = p
 		}
+
+		baseIntPrice := uint64(currentBasePrice)
+		variation := int64(rand.Intn(5)) - 2
+		orderPrice := uint64(int64(baseIntPrice) + variation)
+
+		isBuy := rand.Intn(2) == 0
+
+		order := &engine.Order{
+			Id:        fmt.Sprintf("%s_%d", botID, time.Now().UnixNano()),
+			Symbol:    symbol,
+			IsBuy:     isBuy,
+			Quantity:  rand.Intn(15) + 1,
+			Price:     orderPrice,
+			TimeStamp: time.Now(),
+		}
+		ex.RouteOrder(order)
 	}
 }
 
@@ -159,15 +113,21 @@ func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64) {
 
 func main() {
 	fmt.Println("Starting Nexus matching engine...")
-	initTwelveData("081f90e89a2447a48c79296b458cfd98")
 	ex := engine.NewExchange()
 	populate(ex)
 
-	fmt.Println("Waking up Market Makers (bots) and connecting to Yahoo Finance...")
-	go MarketMakerBot(ex, "AAPL", 150)
-	go MarketMakerBot(ex, "MSFT", 400)
-	go MarketMakerBot(ex, "NVDA", 120)
-	go MarketMakerBot(ex, "TSLA", 200)
+
+	fmt.Println("Starting Price Oracle...")
+	po := oracle.NewPriceOracle("081f90e89a2447a48c79296b458cfd98")
+	symbols := []string{"AAPL", "MSFT", "NVDA", "TSLA"}
+
+	go po.RunPriceUpdater(symbols)
+
+	fmt.Println("Waking up Market Makers (bots)...")
+	go MarketMakerBot(ex, "AAPL", 150, po)
+	go MarketMakerBot(ex, "MSFT", 400, po)
+	go MarketMakerBot(ex, "NVDA", 120, po)
+	go MarketMakerBot(ex, "TSLA", 200, po)
 	
 	api.StartAPI(ex)
 }
