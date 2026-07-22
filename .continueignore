@@ -1,0 +1,12 @@
+# React frontend
+nexus-ui/**
+
+# Dependencies
+**/node_modules/**
+**/.next/**
+**/dist/**
+**/build/**
+
+# Generated files
+**/*.map
+**/*.min.js

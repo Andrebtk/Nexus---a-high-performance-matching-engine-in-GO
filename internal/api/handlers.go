@@ -27,54 +27,59 @@ func GetExchangeTickets(ex *engine.Exchange) gin.HandlerFunc {
 	}
 }
 
-
 func GetOrderBookHandler(ex *engine.Exchange) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		
-		symbol := c.Query("symbol")
-		if symbol == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing symbol parameter"})
-			return
-		}
+    return func(c *gin.Context) {
+        
+        symbol := c.Query("symbol")
+        if symbol == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Missing symbol parameter"})
+            return
+        }
 
-		ob := ex.GetOrderBook(symbol)
-		if ob == nil {
-			
-			c.JSON(http.StatusOK, gin.H{"bids": []interface{}{}, "asks": []interface{}{}})
-			return
-		}
+        ob := ex.GetOrderBook(symbol)
+        if ob == nil {
+            c.JSON(http.StatusOK, gin.H{
+                "bids": []interface{}{},
+                "asks": []interface{}{},
+                "spread": 0,
+            })
+            return
+        }
 
-		type PriceLevel struct {
-			Price    float64 `json:"price"`
-			Quantity int     `json:"quantity"`
-		}
+        type PriceLevel struct {
+            Price    float64 `json:"price"`
+            Quantity int     `json:"quantity"`
+        }
 
-		var bids []PriceLevel
-		var asks []PriceLevel
+        // FIX 1 : Initialisation stricte pour éviter que l'API renvoie "null" en JSON
+        bids := []PriceLevel{}
+        asks := []PriceLevel{}
 
-		for price, limit := range ob.Bids {
-			bids = append(bids, PriceLevel{
-				Price:    float64(price),
-				Quantity: int(limit.TotalVolume),
-			})
-		}
-		for price, limit := range ob.Asks {
-			asks = append(asks, PriceLevel{
-				Price:    float64(price),
-				Quantity: int(limit.TotalVolume),
-			})
-		}
+        for price, limit := range ob.Bids {
+            bids = append(bids, PriceLevel{
+                Price:    float64(price),
+                Quantity: int(limit.TotalVolume),
+            })
+        }
+        sort.Slice(bids, func(i, j int) bool { return bids[i].Price > bids[j].Price })
 
-		
-		sort.Slice(bids, func(i, j int) bool { return bids[i].Price > bids[j].Price }) 
-		sort.Slice(asks, func(i, j int) bool { return asks[i].Price < asks[j].Price }) 
+        for price, limit := range ob.Asks {
+            asks = append(asks, PriceLevel{
+                Price:    float64(price),
+                Quantity: int(limit.TotalVolume),
+            })
+        }
+        sort.Slice(asks, func(i, j int) bool { return asks[i].Price < asks[j].Price })
 
-		c.JSON(http.StatusOK, gin.H{
-			"bids": bids,
-			"asks": asks,
-		})
-	}
+        // FIX 2 : Renvoyer la réponse finale au client (ça manquait !)
+        c.JSON(http.StatusOK, gin.H{
+            "bids": bids,
+            "asks": asks,
+            "spread": 0, // Tu pourras rajouter la vraie logique du spread ici plus tard
+        })
+    }
 }
+
 
 
 

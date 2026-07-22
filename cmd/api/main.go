@@ -8,6 +8,7 @@ import (
 	"Nexus/internal/api"
 	"Nexus/internal/engine"
 	"Nexus/internal/oracle"
+	"Nexus/internal/services"
 )
 
 func testOrderBook() {
@@ -99,6 +100,7 @@ func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64, po
 
 		order := &engine.Order{
 			Id:        fmt.Sprintf("%s_%d", botID, time.Now().UnixNano()),
+			UserID:    "system_bot",
 			Symbol:    symbol,
 			IsBuy:     isBuy,
 			Quantity:  rand.Intn(15) + 1,
@@ -113,7 +115,24 @@ func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64, po
 
 func main() {
 	fmt.Println("Starting Nexus matching engine...")
-	ex := engine.NewExchange()
+
+
+	
+
+	userService := services.NewUserService()
+
+	userService.CreateUser("system_bot")
+
+
+	botUser, err := userService.GetUser("system_bot")
+	if err == nil {
+		botUser.Balance = 10000000 
+	}
+
+	transactionService := services.NewTransactionService()
+	profitLossService := services.NewProfitLossService(userService, transactionService)
+
+	ex := engine.NewExchange(userService, transactionService, profitLossService)
 	//populate(ex)
 
 

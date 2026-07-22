@@ -156,6 +156,7 @@ func (ob *OrderBook) matchSell(o *Order) {
 func (ob *OrderBook) placeMakerOrder(o *Order) {
 
 	var targetMap map[uint64]*Limit
+
 	if o.IsBuy {
 		targetMap = ob.Bids
 	} else {

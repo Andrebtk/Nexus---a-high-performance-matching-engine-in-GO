@@ -11,6 +11,7 @@ type Order struct {
 	Quantity  int
 	Price     uint64
 	TimeStamp time.Time
+	UserID    string
 
 	next *Order
 	prev *Order
