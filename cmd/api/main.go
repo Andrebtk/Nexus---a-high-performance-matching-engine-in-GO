@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"time"
 	"math/rand"
 
 	"Nexus/internal/api"
+	"Nexus/internal/database"
 	"Nexus/internal/engine"
 	"Nexus/internal/oracle"
 	"Nexus/internal/services"
@@ -69,15 +71,12 @@ func populate(ex *engine.Exchange) {
 		{Id: "pop_tsla_bid2", Symbol: "TSLA", IsBuy: true, Quantity: 50, Price: 195, TimeStamp: time.Now()},
 	}
 
-
 	for _, order := range initialOrders {
 		ex.RouteOrder(order)
 	}
 
-
 	fmt.Println("✅ AAPL, MSFT, NVDA, and TSLA markets successfully initialized !")
 }
-
 
 func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64, po *oracle.PriceOracle) {
 	tradeTicker := time.NewTicker(2 * time.Second)
@@ -111,22 +110,38 @@ func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64, po
 	}
 }
 
-
-
 func main() {
 	fmt.Println("Starting Nexus matching engine...")
 
+	// Initialize PostgreSQL database
+	db, err := database.InitDB()
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.CloseDB()
 
-	
+	// Create PostgreSQL user service
+	postgresUserService := services.NewPostgresUserService(db)
 
+	// Create system bot if it doesn't exist
+	err = postgresUserService.CreateSystemBotIfNotExists()
+	if err != nil {
+		log.Printf("Warning: Failed to create system bot: %v", err)
+	}
+
+	// Get system bot user (for reference, not currently used)
+	_, err = postgresUserService.GetUserByEmail("system@nexus.com")
+	if err != nil {
+		log.Fatalf("Failed to get system bot: %v", err)
+	}
+
+	// Create in-memory user service for existing functionality
 	userService := services.NewUserService()
-
 	userService.CreateUser("system_bot")
-
 
 	botUser, err := userService.GetUser("system_bot")
 	if err == nil {
-		botUser.Balance = 10000000 
+		botUser.Balance = 10000000
 	}
 
 	transactionService := services.NewTransactionService()
@@ -134,7 +149,6 @@ func main() {
 
 	ex := engine.NewExchange(userService, transactionService, profitLossService)
 	//populate(ex)
-
 
 	fmt.Println("Starting Price Oracle...")
 	po := oracle.NewPriceOracle("081f90e89a2447a48c79296b458cfd98")
@@ -147,6 +161,6 @@ func main() {
 	go MarketMakerBot(ex, "MSFT", 400, po)
 	go MarketMakerBot(ex, "NVDA", 120, po)
 	go MarketMakerBot(ex, "TSLA", 200, po)
-	
-	api.StartAPI(ex)
+
+	api.StartAPI(ex, profitLossService, postgresUserService)
 }

@@ -85,3 +85,15 @@ func (us *UserService) Withdraw(id string, amount float64) error {
 	user.Balance -= amount
 	return nil
 }
+
+// GetAllUsers returns all users (for migration purposes)
+func (s *UserService) GetAllUsers() []*models.User {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	users := make([]*models.User, 0, len(s.users))
+	for _, user := range s.users {
+		users = append(users, user)
+	}
+	return users
+}

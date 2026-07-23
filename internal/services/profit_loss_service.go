@@ -20,14 +20,14 @@ func NewProfitLossService(userService *UserService, transactionService *Transact
 }
 
 
-func (pls *ProfitLossService) CalculateProfitLoss(userID string) error {
+func (pls *ProfitLossService) CalculateProfitLoss(userID string) (float64, float64, error) {
 	pls.mu.Lock()
 	defer pls.mu.Unlock()
 
 	user, err := pls.userService.GetUser(userID)
 
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 
 	transactions := pls.transactionService.GetTransactions(userID)
@@ -45,5 +45,17 @@ func (pls *ProfitLossService) CalculateProfitLoss(userID string) error {
 
 	user.Profit = totalProfit
 	user.Loss = totalLoss
-	return nil
+	return totalProfit, totalLoss, nil
+}
+
+func (pls *ProfitLossService) GetUserProfitLoss(userID string) (float64, float64, error) {
+	pls.mu.RLock()
+	defer pls.mu.RUnlock()
+
+	user, err := pls.userService.GetUser(userID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return user.Profit, user.Loss, nil
 }
