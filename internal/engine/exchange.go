@@ -83,11 +83,9 @@ func (e *Exchange) RouteOrder(o *Order) {
 	log.Printf("DEBUG: After processing order %s: remaining quantity=%d, matched quantity=%d",
 		o.Id, o.Quantity, originalQuantity - o.Quantity)
 
-	// Place remaining quantity as a maker order if any
+	// The order has already been placed in the order book by ProcessOrder if there was remaining quantity
 	if o.Quantity > 0 {
-		log.Printf("DEBUG: Placing order %s in order book with remaining quantity %d", o.Id, o.Quantity)
-		book.placeMakerOrder(o)
-		log.Printf("DEBUG: Order %s placed in order book successfully", o.Id)
+		log.Printf("DEBUG: Order %s placed in order book with remaining quantity %d", o.Id, o.Quantity)
 	} else {
 		log.Printf("DEBUG: Order %s was fully matched, not adding to order book", o.Id)
 	}
@@ -111,6 +109,9 @@ func (e *Exchange) RouteOrder(o *Order) {
 	e.profitLossService.CalculateProfitLoss(o.UserID)
 
 	// Update order status in database if this is a PostgreSQL user
+	log.Printf("DEBUG: [ORDER STATUS] Checking order status update for order %s, DBOrderID=%d, Quantity=%d, orderService=%v",
+		o.Id, o.DBOrderID, o.Quantity, e.orderService != nil)
+
 	if e.orderService != nil && o.DBOrderID > 0 {
 		// Check if this order was fully matched (quantity is 0)
 		if o.Quantity == 0 {
@@ -123,8 +124,14 @@ func (e *Exchange) RouteOrder(o *Order) {
 				log.Printf("INFO: Successfully updated order %d status to completed", o.DBOrderID)
 			}
 		} else {
+			// Ensure the order status is set to 'active' if it's not fully matched
 			log.Printf("INFO: Order %d partially matched, remaining quantity: %d", o.DBOrderID, o.Quantity)
+			// No need to update status here as it should already be 'active'
 		}
+	} else if o.DBOrderID == 0 {
+		log.Printf("WARNING: Order %s has DBOrderID=0, cannot update status in database", o.Id)
+	} else {
+		log.Printf("WARNING: Order %s cannot update status - orderService is nil", o.Id)
 	}
 }
 

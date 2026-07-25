@@ -37,8 +37,15 @@ function ProfilePage() {
 
         console.log(`DEBUG: Fetching orders for user ${user.id}`);
 
+        // Get JWT token from localStorage
+        const token = localStorage.getItem('token');
+
         // Fetch active orders
-        const activeResponse = await fetch(`${API_URL}/orders/active?user_id=${user.id}`);
+        const activeResponse = await fetch(`${API_URL}/orders/active?user_id=${user.id}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         console.log(`DEBUG: Active orders response status: ${activeResponse.status}`);
         if (activeResponse.ok) {
           const activeData = await activeResponse.json();
@@ -47,7 +54,11 @@ function ProfilePage() {
         }
 
         // Fetch order history
-        const historyResponse = await fetch(`${API_URL}/orders/history?user_id=${user.id}`);
+        const historyResponse = await fetch(`${API_URL}/orders/history?user_id=${user.id}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         console.log(`DEBUG: History orders response status: ${historyResponse.status}`);
         if (historyResponse.ok) {
           const historyData = await historyResponse.json();

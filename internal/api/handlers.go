@@ -277,8 +277,14 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             }
         }
 
-        // Create order record in database first if it's a PostgreSQL user (numeric ID)
+        // Create order record in database for all users (including system_bot)
         var dbOrderID int
+        orderType := "BUY"
+        if !order.IsBuy {
+            orderType = "SELL"
+        }
+
+        // Try to create order record in database for numeric user IDs (PostgreSQL users)
         if numericUserID, err := strconv.Atoi(userID); err == nil {
             // Calculate the amount to deduct/add from balance
             amount := float64(order.Quantity) * order.Price
@@ -288,12 +294,6 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             } else {
                 // For sell orders, add to balance
                 amount = amount
-            }
-
-            // Create order record in database
-            orderType := "BUY"
-            if !order.IsBuy {
-                orderType = "SELL"
             }
 
             // Create order record in database
@@ -309,6 +309,16 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             err = postgresUserService.UpdateUserBalance(numericUserID, amount)
             if err != nil {
                 log.Printf("Warning: Failed to update balance for user %d: %v", numericUserID, err)
+            }
+        } else {
+            // For non-numeric user IDs (like system_bot), create a special order record
+            // We'll use user_id = 0 for system_bot orders to track them in the database
+            dbOrder, err := orderService.CreateOrder(0, order.Symbol, orderType, order.Quantity, order.Price, "active")
+            if err != nil {
+                log.Printf("Warning: Failed to create order record for system_bot: %v", err)
+            } else {
+                dbOrderID = dbOrder.ID
+                log.Printf("INFO: Created order %d in database for system_bot", dbOrderID)
             }
         }
 

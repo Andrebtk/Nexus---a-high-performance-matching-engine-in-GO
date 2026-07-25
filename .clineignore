@@ -4,7 +4,6 @@ nexus-ui/dist/
 nexus-ui/build/
 nexus-ui/.next/
 nexus-ui/public/
-nexus-ui/src/components/
 nexus-ui/src/assets/
 
 # Fichiers statiques
