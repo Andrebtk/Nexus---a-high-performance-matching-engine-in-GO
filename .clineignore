@@ -1,0 +1,32 @@
+# React frontend — ignore la majorité
+nexus-ui/node_modules/
+nexus-ui/dist/
+nexus-ui/build/
+nexus-ui/.next/
+nexus-ui/public/
+nexus-ui/src/components/
+nexus-ui/src/assets/
+
+# Fichiers statiques
+*.svg
+*.png
+*.jpg
+*.jpeg
+*.ico
+*.woff
+*.woff2
+*.ttf
+*.gif
+current_design.png
+
+# Fichiers de lock
+nexus-ui/package-lock.json
+nexus-ui/yarn.lock
+nexus-ui/.pnp*
+go.sum
+
+# Logs et cache
+*.log
+.DS_Store
+nexus-ui/.cache/
+nexus-ui/coverage/

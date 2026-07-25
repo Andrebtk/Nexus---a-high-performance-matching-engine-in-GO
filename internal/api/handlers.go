@@ -318,7 +318,7 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             Symbol:   order.Symbol,
             IsBuy:    order.IsBuy,
             Quantity: order.Quantity,
-            Price:    uint64(order.Price * 100), // Convert to cents
+            Price:    uint64(order.Price),
             TimeStamp: time.Now(),
             UserID:   userID,
             DBOrderID: dbOrderID, // Store the database order ID

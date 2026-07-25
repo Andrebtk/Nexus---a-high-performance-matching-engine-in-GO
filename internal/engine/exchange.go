@@ -63,17 +63,14 @@ func (e *Exchange) RouteOrder(o *Order) {
 		}
 	}
 
-
-
 	if o.IsBuy {
-		requiredBalance := float64(o.Quantity) * float64(o.Price)
-		if user.Balance < requiredBalance {
-			// Handle insufficient balance
-			log.Printf("WARNING: Order %s rejected - insufficient balance. Required: $%.2f, Available: $%.2f",
-				o.Id, requiredBalance, user.Balance)
-			return
-		}
-	}
+        requiredBalance := float64(o.Quantity) * float64(o.Price)
+        if user.Balance < requiredBalance {
+            log.Printf("WARNING: Order %s rejected - insufficient balance. Required: $%.2f, Available: $%.2f",
+                o.Id, requiredBalance, user.Balance)
+            return
+        }
+    }
 
 	// Store the original quantity before processing
 	originalQuantity := o.Quantity
