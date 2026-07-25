@@ -146,8 +146,9 @@ func main() {
 
 	transactionService := services.NewTransactionService()
 	profitLossService := services.NewProfitLossService(userService, transactionService)
+	orderService := services.NewOrderService(database.DB)
 
-	ex := engine.NewExchange(userService, transactionService, profitLossService)
+	ex := engine.NewExchange(userService, transactionService, profitLossService, orderService)
 	//populate(ex)
 
 	fmt.Println("Starting Price Oracle...")

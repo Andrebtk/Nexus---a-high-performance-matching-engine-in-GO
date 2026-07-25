@@ -62,7 +62,27 @@ func createTables() error {
 		return fmt.Errorf("failed to create users table: %v", err)
 	}
 
+	// Create orders table
+	ordersTable := `
+	CREATE TABLE IF NOT EXISTS orders (
+		id SERIAL PRIMARY KEY,
+		user_id INTEGER REFERENCES users(id),
+		symbol VARCHAR(10) NOT NULL,
+		order_type VARCHAR(4) NOT NULL,
+		quantity INTEGER NOT NULL,
+		price DECIMAL(10, 2) NOT NULL,
+		status VARCHAR(20) NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	_, err = DB.Exec(ordersTable)
+	if err != nil {
+		return fmt.Errorf("failed to create orders table: %v", err)
+	}
+
 	log.Println("Users table created/verified")
+	log.Println("Orders table created/verified")
 
 	return nil
 }

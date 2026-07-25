@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+ import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { useAuth } from './context/AuthContext'
 
@@ -18,7 +19,8 @@ const theme = {
 };
 
 function AppContent() {
-  const { user, logout, toggleAuthModal, setUser } = useAuth();
+  const { user, logout, toggleAuthModal, setUser, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [activeSymbol, setActiveSymbol] = useState("AAPL");
   const [orderBook, setOrderBook] = useState({ bids: [], asks: [] });
   const [currentPrices, setCurrentPrices] = useState({ AAPL: 0, MSFT: 0, NVDA: 0, TSLA: 0 });
@@ -115,56 +117,65 @@ function AppContent() {
     e.preventDefault();
     if (!price || !quantity) return;
 
+    // Check if user is authenticated
+    if (!user) {
+      alert("Please login to place orders. Trading requires authentication.");
+      return;
+    }
+
     const order = {
       symbol: activeSymbol,
       isBuy: isBuy,
       quantity: parseInt(quantity),
-      price: parseFloat(price)
+      price: parseFloat(price),
+      user_id: user.id // Always include user_id for authenticated users
     };
 
-    // Add user_id if user is authenticated
-    if (user && user.id) {
-      order.user_id = user.id;
-    }
-
     try {
+      // Get JWT token for authenticated request
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert("Authentication required. Please login.");
+        return;
+      }
+
       const res = await fetch(`${API_URL}/order`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify(order)
       });
 
-        if (res.ok) {
-          setPrice("");
-          setQuantity("");
-          // Refresh user data to get updated balance
-          const token = localStorage.getItem('token');
-          if (token) {
-            try {
-              const response = await fetch(`${API_URL}/auth/me`, {
-                headers: {
-                  'Authorization': `Bearer ${token}`
-                }
-              });
+      if (res.ok) {
+        setPrice("");
+        setQuantity("");
+        // Refresh user data to get updated balance
+        try {
+          const response = await fetch(`${API_URL}/auth/me`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
           if (response.ok) {
             const data = await response.json();
             // Update user in context
-            if (user && user.id) {
-              // Create updated user object with new balance
-              const updatedUser = {...user, balance: data.user.balance};
-              // Update the user context to trigger a re-render
-              setUser(updatedUser);
-            }
+            const updatedUser = {...user, balance: data.user.balance};
+            setUser(updatedUser);
           }
-            } catch (error) {
-              console.error('Failed to refresh user data:', error);
-            }
-          }
-        } else {
-          alert("Failed to place order.");
+        } catch (error) {
+          console.error('Failed to refresh user data:', error);
         }
+      } else if (res.status === 401) {
+        alert("Authentication required. Please login to place orders.");
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Failed to place order.");
+      }
     } catch (err) {
       console.error("API error:", err);
+      alert("Failed to place order. Please try again.");
     }
   };
 
@@ -176,7 +187,7 @@ function AppContent() {
           <h1 style={{ margin: 0, fontSize: '32px', fontWeight: '800', letterSpacing: '-0.5px' }}>Nexus Exchange</h1>
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            {user ? (
+            {isAuthenticated && user ? (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{
@@ -195,6 +206,16 @@ function AppContent() {
                   <span style={{ color: theme.textMuted, fontSize: '12px' }}>Balance: </span>
                   <span style={{ color: theme.textMain, fontWeight: '600' }}>${user.balance?.toFixed(2) || '0.00'}</span>
                 </div>
+                <button
+                  onClick={() => navigate('/profile')}
+                  style={{
+                    padding: '8px 16px', backgroundColor: theme.accent, color: 'white',
+                    border: 'none', borderRadius: '6px', cursor: 'pointer',
+                    fontSize: '14px', fontWeight: '600'
+                  }}
+                >
+                  👤 Profile
+                </button>
                 <button
                   onClick={logout}
                   style={{
@@ -371,6 +392,41 @@ function AppContent() {
           {/* TRADING FORM */}
           <div style={{ flex: '1 1 400px', border: `1px solid ${theme.border}`, padding: '20px', borderRadius: '8px', backgroundColor: theme.panel }}>
             <h3 style={{ marginTop: 0, borderBottom: `1px solid ${theme.border}`, paddingBottom: '15px', fontSize: '16px' }}>Place Order</h3>
+
+            {!user && (
+              <div style={{
+                padding: '12px',
+                backgroundColor: theme.bg,
+                border: `1px solid ${theme.accent}`,
+                borderRadius: '6px',
+                marginBottom: '15px',
+                textAlign: 'center',
+                color: theme.textMain,
+                fontSize: '14px'
+              }}>
+                <strong>🔒 Demo Mode</strong>
+                <div style={{ marginTop: '8px', fontSize: '12px', color: theme.textMuted }}>
+                  You're in view-only mode. <button onClick={toggleAuthModal} style={{ background: 'none', border: 'none', color: theme.accent, cursor: 'pointer', fontWeight: '600', padding: '0', textDecoration: 'underline' }}>Login or register</button> to start trading.
+                </div>
+              </div>
+            )}
+            {user && (
+              <div style={{
+                padding: '12px',
+                backgroundColor: theme.bg,
+                border: `1px solid ${theme.textMuted}`,
+                borderRadius: '6px',
+                marginBottom: '15px',
+                textAlign: 'center',
+                color: theme.textMain,
+                fontSize: '12px'
+              }}>
+                <strong>💡 Order Execution Tip</strong>
+                <div style={{ marginTop: '8px', fontSize: '11px', color: theme.textMuted }}>
+                  Orders that match immediately with existing orders won't appear in the order book. To place an order that sits in the book, choose a price where no existing orders would match.
+                </div>
+              </div>
+            )}
 
             <form onSubmit={submitOrder} style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '20px' }}>
               {/* Toggle Buy / Sell Buttons */}

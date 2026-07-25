@@ -12,6 +12,7 @@ type Order struct {
 	Price     uint64
 	TimeStamp time.Time
 	UserID    string
+	DBOrderID int // Database order ID for PostgreSQL users
 
 	next *Order
 	prev *Order

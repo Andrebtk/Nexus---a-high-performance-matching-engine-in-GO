@@ -9,14 +9,17 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Check for existing session on app load
   useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        // No existing session, create a guest account
-        await createGuestSession();
+        // No existing session, set user to null (no guest creation)
+        setUser(null);
+        setIsAuthenticated(false);
+        setLoading(false);
         return;
       }
 
@@ -30,15 +33,18 @@ export function AuthProvider({ children }) {
         if (response.ok) {
           const data = await response.json();
           setUser(data.user);
+          setIsAuthenticated(true);
         } else {
-          // Token is invalid, clear it and create guest
+          // Token is invalid, clear it
           localStorage.removeItem('token');
           localStorage.removeItem('user');
-          await createGuestSession();
+          setUser(null);
+          setIsAuthenticated(false);
         }
       } catch (error) {
         console.error('Failed to check auth:', error);
-        await createGuestSession();
+        setUser(null);
+        setIsAuthenticated(false);
       } finally {
         setLoading(false);
       }
@@ -47,31 +53,9 @@ export function AuthProvider({ children }) {
     checkAuth();
   }, []);
 
-  const createGuestSession = async () => {
-    try {
-      const response = await fetch(`${API_URL}/auth/guest`);
-      if (response.ok) {
-        const data = await response.json();
-        // Store guest token temporarily (not persisted)
-        setUser(data.user);
-      }
-    } catch (error) {
-      console.error('Failed to create guest session:', error);
-      // Fallback to system_bot if guest creation fails
-      setUser({
-        id: "system_bot",
-        username: "Guest",
-        email: "guest@nexus.com",
-        balance: 1000,
-        profit: 0,
-        loss: 0,
-        created_at: new Date().toISOString()
-      });
-    }
-  };
-
   const login = (userData) => {
     setUser(userData);
+    setIsAuthenticated(true);
     setShowAuthModal(false);
   };
 
@@ -79,6 +63,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    setIsAuthenticated(false);
   };
 
   const toggleAuthModal = () => {
@@ -90,6 +75,7 @@ export function AuthProvider({ children }) {
       user,
       loading,
       showAuthModal,
+      isAuthenticated,
       setUser,
       login,
       logout,

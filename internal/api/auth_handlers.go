@@ -102,8 +102,8 @@ func MeHandler(postgresUserService *services.PostgresUserService) gin.HandlerFun
 			return
 		}
 
-		// Return user response (without password hash)
 		response := models.UserResponse{
+			// Return user response (without password hash)
 			ID:        user.ID,
 			Username:  user.Username,
 			Email:     user.Email,
@@ -178,25 +178,3 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-func CreateGuestUserHandler(postgresUserService *services.PostgresUserService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Create a new guest user
-		guestUser, err := postgresUserService.CreateGuestUser()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create guest user"})
-			return
-		}
-
-		// Generate JWT token for the guest user
-		token, err := generateJWTToken(guestUser.ID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"user":  guestUser,
-			"token": token,
-		})
-	}
-}

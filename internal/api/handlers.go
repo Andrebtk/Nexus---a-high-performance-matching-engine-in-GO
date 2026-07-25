@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"Nexus/internal/database"
 	"Nexus/internal/engine"
 	"Nexus/internal/services"
 	"sort"
@@ -149,7 +150,67 @@ func CalculateProfitLossHandler(pls *services.ProfitLossService) gin.HandlerFunc
     }
 }
 
-func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.PostgresUserService) gin.HandlerFunc {
+func GetActiveOrdersHandler(orderService *services.OrderService) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userID := c.Query("user_id")
+        if userID == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user_id parameter"})
+            return
+        }
+
+        // Convert userID to integer
+        userIDInt, err := strconv.Atoi(userID)
+        if err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
+            return
+        }
+
+        orders, err := orderService.GetActiveOrders(userIDInt)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch active orders"})
+            return
+        }
+
+        log.Printf("INFO: Fetched %d active orders for user %d", len(orders), userIDInt)
+
+        c.JSON(http.StatusOK, gin.H{
+            "user_id": userID,
+            "active_orders": orders,
+        })
+    }
+}
+
+func GetOrderHistoryHandler(orderService *services.OrderService) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userID := c.Query("user_id")
+        if userID == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user_id parameter"})
+            return
+        }
+
+        // Convert userID to integer
+        userIDInt, err := strconv.Atoi(userID)
+        if err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
+            return
+        }
+
+        orders, err := orderService.GetOrderHistory(userIDInt)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch order history"})
+            return
+        }
+
+        log.Printf("INFO: Fetched %d historical orders for user %d", len(orders), userIDInt)
+
+        c.JSON(http.StatusOK, gin.H{
+            "user_id": userID,
+            "order_history": orders,
+        })
+    }
+}
+
+func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.PostgresUserService, orderService *services.OrderService) gin.HandlerFunc {
     return func(c *gin.Context) {
         var order struct {
             Symbol   string  `json:"symbol"`
@@ -163,6 +224,9 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid order data: %v", err.Error())})
             return
         }
+
+        log.Printf("DEBUG: Received order request: symbol=%s, isBuy=%t, quantity=%d, price=%f, userID=%v",
+            order.Symbol, order.IsBuy, order.Quantity, order.Price, order.UserID)
 
         if order.Symbol == "" || order.Quantity <= 0 || order.Price <= 0 {
             c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid order parameters: symbol=%s, quantity=%d, price=%f", order.Symbol, order.Quantity, order.Price)})
@@ -194,20 +258,27 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             }
         }
 
-        // Create and add order to the exchange
-        engineOrder := &engine.Order{
-            Id:       "order_" + time.Now().Format("20060102150405"),
-            Symbol:   order.Symbol,
-            IsBuy:    order.IsBuy,
-            Quantity: order.Quantity,
-            Price:    uint64(order.Price * 100), // Convert to cents
-            TimeStamp: time.Now(),
-            UserID:   userID,
+        // Check if order would be rejected due to insufficient balance BEFORE any database operations
+        if order.IsBuy {
+            // Convert userID to integer for PostgreSQL users
+            var userIDInt int
+            var err error
+            if userIDInt, err = strconv.Atoi(userID); err == nil && userIDInt > 0 {
+                user, err := postgresUserService.GetUserByID(userIDInt)
+                if err == nil {
+                    requiredBalance := float64(order.Quantity) * order.Price
+                    if user.Balance < requiredBalance {
+                        c.JSON(http.StatusBadRequest, gin.H{
+                            "error": fmt.Sprintf("Insufficient balance. Required: $%.2f, Available: $%.2f", requiredBalance, user.Balance),
+                        })
+                        return
+                    }
+                }
+            }
         }
 
-        ex.RouteOrder(engineOrder)
-
-        // Update PostgreSQL user balance if it's a PostgreSQL user (numeric ID)
+        // Create order record in database first if it's a PostgreSQL user (numeric ID)
+        var dbOrderID int
         if numericUserID, err := strconv.Atoi(userID); err == nil {
             // Calculate the amount to deduct/add from balance
             amount := float64(order.Quantity) * order.Price
@@ -219,12 +290,43 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
                 amount = amount
             }
 
+            // Create order record in database
+            orderType := "BUY"
+            if !order.IsBuy {
+                orderType = "SELL"
+            }
+
+            // Create order record in database
+            dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
+            if err != nil {
+                log.Printf("Warning: Failed to create order record for user %d: %v", numericUserID, err)
+            } else {
+                dbOrderID = dbOrder.ID
+                log.Printf("INFO: Created order %d in database for user %d", dbOrderID, numericUserID)
+            }
+
             // Update the user's balance in PostgreSQL
             err = postgresUserService.UpdateUserBalance(numericUserID, amount)
             if err != nil {
                 log.Printf("Warning: Failed to update balance for user %d: %v", numericUserID, err)
             }
         }
+
+        // Create and add order to the exchange
+        engineOrder := &engine.Order{
+            Id:       "order_" + time.Now().Format("20060102150405"),
+            Symbol:   order.Symbol,
+            IsBuy:    order.IsBuy,
+            Quantity: order.Quantity,
+            Price:    uint64(order.Price * 100), // Convert to cents
+            TimeStamp: time.Now(),
+            UserID:   userID,
+            DBOrderID: dbOrderID, // Store the database order ID
+        }
+
+        log.Printf("DEBUG: Passing order %s to exchange engine, dbOrderID=%d", engineOrder.Id, engineOrder.DBOrderID)
+        ex.RouteOrder(engineOrder)
+        log.Printf("DEBUG: Exchange engine processing completed for order %s", engineOrder.Id)
 
         c.JSON(http.StatusOK, gin.H{
             "message": "Order placed successfully",
@@ -247,6 +349,92 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
 
 
 
+
+func CompleteOrderHandler(orderService *services.OrderService) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        orderID := c.Param("id")
+        if orderID == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Missing order ID parameter"})
+            return
+        }
+
+        // Convert orderID to integer
+        orderIDInt, err := strconv.Atoi(orderID)
+        if err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+            return
+        }
+
+        err = orderService.CompleteOrder(orderIDInt)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete order"})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "message": "Order marked as completed successfully",
+        })
+    }
+}
+
+func CancelOrderHandler(orderService *services.OrderService) gin.HandlerFunc {
+    return func(c *gin.Context) {
+          orderID := c.Param("id")
+        if orderID == "" {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Missing order ID parameter"})
+            return
+        }
+
+        // Convert orderID to integer
+        orderIDInt, err := strconv.Atoi(orderID)
+        if err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+            return
+        }
+
+        err = orderService.CancelOrder(orderIDInt)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel order"})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "message": "Order marked as cancelled successfully",
+        })
+    }
+}
+
+func ProfileHandler(postgresUserService *services.PostgresUserService) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Get user ID from JWT token
+        userIDInterface, exists := c.Get("userID")
+        if !exists {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+            return
+        }
+
+        userID := userIDInterface.(int)
+
+        // Get user from database
+        user, err := postgresUserService.GetUserByID(userID)
+        if err != nil {
+            c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "user": gin.H{
+                "id": user.ID,
+                "username": user.Username,
+                "email": user.Email,
+                "balance": user.Balance,
+                "created_at": user.CreatedAt,
+                "profit": user.Profit,
+                "loss": user.Loss,
+            },
+        })
+    }
+}
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -276,7 +464,15 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 	router.GET("/book", GetOrderBookHandler(ex))
 	router.GET("/profit-loss", GetProfitLossHandler(pls, postgresUserService))
 	router.GET("/calculate-profit-loss", CalculateProfitLossHandler(pls))
-	router.POST("/order", PlaceOrderHandler(ex, postgresUserService))
+	
+
+	// Order management routes (all require authentication)
+	orderService := services.NewOrderService(database.DB)
+	router.GET("/orders/active", JWTAuthMiddleware(), GetActiveOrdersHandler(orderService))
+	router.GET("/orders/history", JWTAuthMiddleware(), GetOrderHistoryHandler(orderService))
+	router.POST("/order", JWTAuthMiddleware(), PlaceOrderHandler(ex, postgresUserService, orderService))
+	router.POST("/orders/:id/complete", JWTAuthMiddleware(), CompleteOrderHandler(orderService))
+	router.POST("/orders/:id/cancel", JWTAuthMiddleware(), CancelOrderHandler(orderService))
 
 	// Authentication routes
 	authGroup := router.Group("/auth")
@@ -284,7 +480,7 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 		authGroup.POST("/register", RegisterHandler(postgresUserService))
 		authGroup.POST("/login", LoginHandler(postgresUserService))
 		authGroup.GET("/me", JWTAuthMiddleware(), MeHandler(postgresUserService))
-		authGroup.GET("/guest", CreateGuestUserHandler(postgresUserService))
+		authGroup.GET("/profile", JWTAuthMiddleware(), ProfileHandler(postgresUserService))
 	}
 
 
