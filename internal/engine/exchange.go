@@ -16,6 +16,7 @@ type Exchange struct {
 	profitLossService  *services.ProfitLossService
 	orderService       *services.OrderService
 	postgresUserService *services.PostgresUserService
+	costBasisService    *services.CostBasisService
 
 	mu sync.RWMutex
 }
@@ -24,7 +25,8 @@ func NewExchange(userService *services.UserService,
 	transactionService *services.TransactionService,
 	profitLossService *services.ProfitLossService,
 	orderService *services.OrderService,
-	postgresUserService *services.PostgresUserService) *Exchange {
+	postgresUserService *services.PostgresUserService,
+	costBasisService *services.CostBasisService) *Exchange {
 	return &Exchange{
 		books: make(map[string]*OrderBook),
 		userService:        userService,
@@ -32,6 +34,7 @@ func NewExchange(userService *services.UserService,
 		profitLossService:  profitLossService,
 		orderService:       orderService,
 		postgresUserService: postgresUserService,
+		costBasisService:    costBasisService,
 	}
 }
 
@@ -114,8 +117,34 @@ func (e *Exchange) RouteOrder(o *Order) {
 		user.Balance += float64(originalQuantity - o.Quantity) * float64(o.Price)
 	}
 
-	// Calculate profit/loss
-	e.profitLossService.CalculateProfitLoss(o.UserID)
+	// Track cost basis and realized P&L for PostgreSQL users
+	matchedQuantity := originalQuantity - o.Quantity
+	if matchedQuantity > 0 {
+		if numericUserID, err := strconv.Atoi(o.UserID); err == nil && numericUserID > 0 {
+			if o.IsBuy {
+				// For buy orders, record the cost basis
+				err := e.costBasisService.RecordBuy(numericUserID, o.Symbol, matchedQuantity, float64(o.Price))
+				if err != nil {
+					log.Printf("Warning: Failed to record cost basis for buy order: %v", err)
+				}
+			} else {
+				// For sell orders, calculate realized P&L and update profit/loss
+				realized, err := e.costBasisService.RecordSell(numericUserID, o.Symbol, matchedQuantity, float64(o.Price))
+				if err != nil {
+					log.Printf("Warning: Failed to record cost basis for sell order: %v", err)
+				} else if realized != 0 {
+					// Update realized P&L
+					err := e.postgresUserService.AddRealizedPL(numericUserID, realized)
+					if err != nil {
+						log.Printf("Warning: Failed to update realized P&L: %v", err)
+					} else {
+						log.Printf("INFO: Realized P&L for user %d: $%.2f (symbol: %s, quantity: %d, sellPrice: $%.2f)",
+							numericUserID, realized, o.Symbol, matchedQuantity, float64(o.Price))
+					}
+				}
+			}
+		}
+	}
 
 	// Update order status in database if this is a PostgreSQL user
 	log.Printf("DEBUG: [ORDER STATUS] Checking order status update for order %s, DBOrderID=%d, Quantity=%d, orderService=%v",

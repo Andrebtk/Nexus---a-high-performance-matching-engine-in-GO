@@ -107,10 +107,26 @@ func createTables() error {
 		return fmt.Errorf("failed to create transactions table: %v", err)
 	}
 
+	// Create cost_basis table
+	costBasisTable := `
+	CREATE TABLE IF NOT EXISTS cost_basis (
+		user_id INTEGER NOT NULL,
+		symbol VARCHAR(10) NOT NULL,
+		quantity INTEGER NOT NULL DEFAULT 0,
+		total_cost DECIMAL(15, 2) NOT NULL DEFAULT 0,
+		PRIMARY KEY (user_id, symbol)
+	);`
+
+	_, err = DB.Exec(costBasisTable)
+	if err != nil {
+		return fmt.Errorf("failed to create cost_basis table: %v", err)
+	}
+
 	log.Println("Users table created/verified")
 	log.Println("Orders table created/verified")
 	log.Println("Stock ownership column added/verified")
 	log.Println("Transactions table created/verified")
+	log.Println("Cost basis table created/verified")
 
 	return nil
 }

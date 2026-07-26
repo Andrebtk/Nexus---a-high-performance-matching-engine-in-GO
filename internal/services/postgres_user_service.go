@@ -145,6 +145,22 @@ func (s *PostgresUserService) UpdateUserProfitLoss(userID int, profit, loss floa
 	return err
 }
 
+// AddRealizedPL applies a realized gain/loss from a sell trade.
+// Positive realized -> profit; negative -> loss (stored as a negative number,
+// consistent with the existing "loss" convention where net = profit + loss).
+func (s *PostgresUserService) AddRealizedPL(userID int, realized float64) error {
+	if realized >= 0 {
+		_, err := s.db.Exec(`
+			UPDATE users SET profit = profit + $1, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $2`, realized, userID)
+		return err
+	}
+	_, err := s.db.Exec(`
+		UPDATE users SET loss = loss + $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2`, realized, userID)
+	return err
+}
+
 // GetStockOwnership returns the stock ownership for a user
 func (s *PostgresUserService) GetStockOwnership(userID int) (map[string]int, error) {
 	var stockOwnershipJSON string
