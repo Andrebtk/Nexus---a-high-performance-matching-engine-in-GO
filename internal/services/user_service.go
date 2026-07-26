@@ -70,30 +70,45 @@ func (us *UserService) Deposit(id string, amount float64) error {
 
 
 func (us *UserService) Withdraw(id string, amount float64) error {
-	us.mu.Lock()
-	defer us.mu.Unlock()
+    us.mu.Lock()
+    defer us.mu.Unlock()
 
-	user, exists := us.users[id]
-	if !exists {
-		return errors.New("user not found")
-	}
+    user, exists := us.users[id]
+    if !exists {
+        return errors.New("user not found")
+    }
 
-	if user.Balance < amount {
-		return errors.New("insufficient balance")
-	}
+    if user.Balance < amount {
+        return errors.New("insufficient balance")
+    }
 
-	user.Balance -= amount
-	return nil
+    user.Balance -= amount
+    return nil
+}
+
+// UpdateProfitLoss updates a user's profit and loss values
+func (us *UserService) UpdateProfitLoss(id string, profit, loss float64) error {
+    us.mu.Lock()
+    defer us.mu.Unlock()
+
+    user, exists := us.users[id]
+    if !exists {
+        return errors.New("user not found")
+    }
+
+    user.Profit = profit
+    user.Loss = loss
+    return nil
 }
 
 // GetAllUsers returns all users (for migration purposes)
 func (s *UserService) GetAllUsers() []*models.User {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+    s.mu.RLock()
+    defer s.mu.RUnlock()
 
-	users := make([]*models.User, 0, len(s.users))
-	for _, user := range s.users {
-		users = append(users, user)
-	}
-	return users
+    users := make([]*models.User, 0, len(s.users))
+    for _, user := range s.users {
+        users = append(users, user)
+    }
+    return users
 }

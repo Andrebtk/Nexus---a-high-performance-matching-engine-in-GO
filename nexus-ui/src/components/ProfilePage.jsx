@@ -254,7 +254,7 @@ function ProfilePage() {
                       <td style={{ padding: '12px', fontWeight: '600' }}>{symbol}</td>
                       <td style={{ padding: '12px', textAlign: 'right' }}>{quantity}</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: theme.buy }}>
-                        ${(quantity * (currentPrices[symbol] || 100)).toFixed(2)}
+                        ${Math.round(quantity * (currentPrices[symbol] || 100))}
                       </td>
                     </tr>
                   ))}
@@ -317,9 +317,9 @@ function ProfilePage() {
                         {order.order_type}
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right' }}>{order.quantity}</td>
-                      <td style={{ padding: '12px', textAlign: 'right' }}>${order.price.toFixed(2)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>${Math.round(order.price)}</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontWeight: '600' }}>
-                        ${(order.quantity * order.price).toFixed(2)}
+                        ${Math.round(order.quantity * order.price)}
                       </td>
                       <td style={{ padding: '12px', color: theme.textMuted, fontSize: '12px' }}>
                         {formatDate(order.created_at)}
@@ -392,9 +392,9 @@ function ProfilePage() {
                         {order.order_type}
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right' }}>{order.quantity}</td>
-                      <td style={{ padding: '12px', textAlign: 'right' }}>${order.price.toFixed(2)}</td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>${Math.round(order.price)}</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontWeight: '600' }}>
-                        ${(order.quantity * order.price).toFixed(2)}
+                        ${Math.round(order.quantity * order.price)}
                       </td>
                       <td style={{ padding: '12px', color: theme.textMuted, fontSize: '12px' }}>
                         {formatDate(order.updated_at)}

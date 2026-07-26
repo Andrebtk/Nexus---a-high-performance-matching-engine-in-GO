@@ -91,9 +91,26 @@ func createTables() error {
 		return fmt.Errorf("failed to add stock_ownership column: %v", err)
 	}
 
+	// Create transactions table
+	transactionsTable := `
+	CREATE TABLE IF NOT EXISTS transactions (
+		id SERIAL PRIMARY KEY,
+		user_id INTEGER REFERENCES users(id),
+		order_id VARCHAR(50),
+		amount DECIMAL(15, 2) NOT NULL,
+		type VARCHAR(20) NOT NULL,
+		timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	_, err = DB.Exec(transactionsTable)
+	if err != nil {
+		return fmt.Errorf("failed to create transactions table: %v", err)
+	}
+
 	log.Println("Users table created/verified")
 	log.Println("Orders table created/verified")
 	log.Println("Stock ownership column added/verified")
+	log.Println("Transactions table created/verified")
 
 	return nil
 }

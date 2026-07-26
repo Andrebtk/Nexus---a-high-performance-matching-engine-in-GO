@@ -153,11 +153,14 @@ function AppContent() {
       return;
     }
 
+    // Round price to whole number
+    const roundedPrice = Math.round(parseFloat(price));
+
     const order = {
       symbol: activeSymbol,
       isBuy: isBuy,
       quantity: parseInt(quantity),
-      price: parseFloat(price),
+      price: roundedPrice,
       user_id: user.id // Always include user_id for authenticated users
     };
 
@@ -314,14 +317,14 @@ function AppContent() {
                 <XAxis dataKey="time" tick={{fontSize: 12, fill: theme.textMuted}} stroke={theme.border} tickMargin={10} />
                 <YAxis
                   domain={['dataMin - 1', 'dataMax + 1']}
-                  tickFormatter={(value) => `$${value}`}
+                  tickFormatter={(value) => `$${Math.round(value)}`}
                   width={70}
                   tick={{fill: theme.textMuted, fontSize: 12}}
                   stroke={theme.border}
                   orientation="right"
                 />
                 <Tooltip
-                  formatter={(value) => [`$${value}`, "Price"]}
+                  formatter={(value) => [`$${Math.round(value)}`, "Price"]}
                   contentStyle={{ backgroundColor: theme.panel, border: `1px solid ${theme.border}`, color: '#fff', borderRadius: '4px' }}
                 />
                 <Line
@@ -349,7 +352,7 @@ function AppContent() {
               {user ? `${user.username}'s Profit` : 'Total Profit'}
             </div>
             <div style={{ fontSize: '28px', fontWeight: 'bold', color: theme.buy }}>
-              {profitLoss.loading ? 'Loading...' : `$${profitLoss.profit.toFixed(2)}`}
+              {profitLoss.loading ? 'Loading...' : `$${Math.round(profitLoss.profit)}`}
             </div>
           </div>
 
@@ -359,7 +362,7 @@ function AppContent() {
               {user ? `${user.username}'s Loss` : 'Total Loss'}
             </div>
             <div style={{ fontSize: '28px', fontWeight: 'bold', color: theme.sell }}>
-              {profitLoss.loading ? 'Loading...' : `$${Math.abs(profitLoss.loss).toFixed(2)}`}
+              {profitLoss.loading ? 'Loading...' : `$${Math.round(Math.abs(profitLoss.loss))}`}
             </div>
           </div>
 
@@ -371,7 +374,7 @@ function AppContent() {
             <div style={{ fontSize: '28px', fontWeight: 'bold', color: profitLoss.net >= 0 ? theme.buy : theme.sell }}>
               {profitLoss.loading ? 'Loading...' : (
                 <>
-                  {profitLoss.net >= 0 ? '+' : '-'}${Math.abs(profitLoss.net).toFixed(2)}
+                  {profitLoss.net >= 0 ? '+' : '-'}${Math.round(Math.abs(profitLoss.net))}
                 </>
               )}
             </div>
@@ -396,7 +399,7 @@ function AppContent() {
               {orderBook.asks?.length > 0 ? orderBook.asks.slice(0, 8).reverse().map((ask, idx) => (
                 <div key={`ask-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: '"Roboto Mono", monospace', fontSize: '14px', margin: '6px 0' }}>
                   <span style={{ flex: 1, textAlign: 'left', color: theme.sell, fontWeight: 'bold' }}>Sell</span>
-                  <span style={{ flex: 1, textAlign: 'center', color: theme.sell }}>{ask.price.toFixed(2)}</span>
+                  <span style={{ flex: 1, textAlign: 'center', color: theme.sell }}>{Math.round(ask.price)}</span>
                   <span style={{ flex: 1, textAlign: 'right', color: theme.textMain }}>{ask.quantity}</span>
                 </div>
               )) : <div style={{ fontSize: '13px', color: theme.textMuted, textAlign: 'center', margin: '10px 0' }}>No asks</div>}
@@ -404,7 +407,7 @@ function AppContent() {
 
             {/* Spread / Mid-Price divider */}
             <div style={{ textAlign: 'center', padding: '12px 0', borderTop: `1px dashed ${theme.border}`, borderBottom: `1px dashed ${theme.border}`, margin: '15px 0', color: currentPrice > 0 ? theme.textMain : theme.textMuted, fontSize: '18px', fontWeight: 'bold' }}>
-              {currentPrice > 0 ? `$${currentPrice.toFixed(2)}` : 'Spread'}
+              {currentPrice > 0 ? `$${Math.round(currentPrice)}` : 'Spread'}
             </div>
 
             {/* Bids (Buyers) */}
@@ -412,7 +415,7 @@ function AppContent() {
               {orderBook.bids?.length > 0 ? orderBook.bids.slice(0, 8).map((bid, idx) => (
                 <div key={`bid-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', fontFamily: '"Roboto Mono", monospace', fontSize: '14px', margin: '6px 0' }}>
                   <span style={{ flex: 1, textAlign: 'left', color: theme.buy, fontWeight: 'bold' }}>Buy</span>
-                  <span style={{ flex: 1, textAlign: 'center', color: theme.buy }}>{bid.price.toFixed(2)}</span>
+                  <span style={{ flex: 1, textAlign: 'center', color: theme.buy }}>{Math.round(bid.price)}</span>
                   <span style={{ flex: 1, textAlign: 'right', color: theme.textMain }}>{bid.quantity}</span>
                 </div>
               )) : <div style={{ fontSize: '13px', color: theme.textMuted, textAlign: 'center', margin: '10px 0' }}>No bids</div>}
@@ -484,13 +487,62 @@ function AppContent() {
                   <span style={{ color: theme.textMuted }}>$</span>
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     value={price}
-                    onChange={(e) => setPrice(e.target.value)}
+                    onChange={(e) => {
+                      // Remove any decimal parts immediately (handle both . and ,)
+                      let value = e.target.value;
+                      // Replace comma with period for consistent handling
+                      value = value.replace(',', '.');
+
+                      if (value.includes('.')) {
+                        // Remove everything after the decimal point
+                        const wholeNumber = value.split('.')[0];
+                        setPrice(wholeNumber);
+                      } else {
+                        setPrice(value);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      // Also clean up when field loses focus
+                      let value = e.target.value;
+                      // Replace comma with period for consistent handling
+                      value = value.replace(',', '.');
+
+                      if (value.includes('.')) {
+                        const wholeNumber = value.split('.')[0];
+                        setPrice(wholeNumber);
+                      }
+                    }}
                     required
                     style={{ flex: 1, padding: '12px 10px', backgroundColor: 'transparent', border: 'none', color: '#fff', outline: 'none', fontSize: '14px' }}
                   />
                 </div>
+                {/* Show current price option for BUY orders */}
+                {isBuy && user && (
+                  <div style={{ marginTop: '8px', fontSize: '12px', color: theme.textMuted }}>
+                    <span style={{ color: theme.textMain }}>Current price: </span>
+                    <span style={{ color: theme.buy, fontWeight: 'bold' }}>
+                      ${Math.round(currentPrice)}
+                    </span>
+                    <button
+                      onClick={() => setPrice(Math.round(currentPrice).toString())}
+                      style={{
+                        marginLeft: '8px',
+                        padding: '4px 8px',
+                        backgroundColor: theme.buy,
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      Use Current Price
+                    </button>
+                  </div>
+                )}
               </div>
 
                {/* Input Quantity */}
@@ -503,16 +555,16 @@ function AppContent() {
                    required
                    style={{ padding: '12px', borderRadius: '4px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: '#fff', outline: 'none', fontSize: '14px' }}
                  />
-                  {/* Show stock ownership for SELL orders */}
-                  {!isBuy && user && (
-                    <div style={{ marginTop: '8px', fontSize: '12px', color: theme.textMuted }}>
-                      <span style={{ color: theme.textMain }}>You own: </span>
-                      <span style={{ color: theme.buy, fontWeight: 'bold' }}>
-                        {stockOwnership[activeSymbol] !== undefined ? stockOwnership[activeSymbol] : 'Loading...'}
-                      </span>
-                      <span style={{ color: theme.textMuted }}> shares of {activeSymbol}</span>
-                    </div>
-                  )}
+                 {/* Show stock ownership for SELL orders */}
+                 {!isBuy && user && (
+                   <div style={{ marginTop: '8px', fontSize: '12px', color: theme.textMuted }}>
+                     <span style={{ color: theme.textMain }}>You own: </span>
+                     <span style={{ color: theme.buy, fontWeight: 'bold' }}>
+                       {stockOwnership[activeSymbol] !== undefined ? stockOwnership[activeSymbol] : 0}
+                     </span>
+                     <span style={{ color: theme.textMuted }}> shares of {activeSymbol}</span>
+                   </div>
+                 )}
                </div>
 
               {/* Submit Button */}

@@ -93,13 +93,19 @@ func (e *Exchange) RouteOrder(o *Order) {
 		log.Printf("DEBUG: Order %s was fully matched, not adding to order book", o.Id)
 	}
 
-	// Record transaction
-	transactionType := "trade"
-	amount := float64(originalQuantity - o.Quantity) * float64(o.Price)
-	if !o.IsBuy {
-		amount = -amount
-	}
-	e.transactionService.RecordTransaction(o.UserID, o.Id, transactionType, amount)
+    // Record transaction
+    transactionType := "trade"
+    amount := float64(originalQuantity - o.Quantity) * float64(o.Price)
+    if !o.IsBuy {
+        amount = -amount
+    }
+    // For PostgreSQL users, ensure we use the same user ID format as the user service
+    transactionUserID := o.UserID
+    if numericUserID, err := strconv.Atoi(o.UserID); err == nil && numericUserID > 0 {
+        // For PostgreSQL users, use the numeric ID to match user service format
+        transactionUserID = strconv.Itoa(numericUserID)
+    }
+    e.transactionService.RecordTransaction(transactionUserID, o.Id, transactionType, amount)
 
 	// Update user balance
 	if o.IsBuy {
@@ -116,8 +122,12 @@ func (e *Exchange) RouteOrder(o *Order) {
 		o.Id, o.DBOrderID, o.Quantity, e.orderService != nil)
 
 	if e.orderService != nil {
+		// Debug: Log the order details to help diagnose completion issues
+		log.Printf("DEBUG: [ORDER COMPLETION CHECK] Order %s: Symbol=%s, UserID=%s, DBOrderID=%d, Quantity=%d, IsBuy=%t, OriginalQuantity=%d",
+			o.Id, o.Symbol, o.UserID, o.DBOrderID, o.Quantity, o.IsBuy, originalQuantity)
 		// Check if this order was fully matched (quantity is 0)
 		if o.Quantity == 0 {
+			log.Printf("INFO: [ORDER COMPLETION] Order %s was fully matched (quantity=%d), initiating completion process", o.Id, o.Quantity)
 			// Mark the order as completed in the database
 			if o.DBOrderID > 0 {
 				log.Printf("INFO: Order %d was fully matched, updating status to completed", o.DBOrderID)

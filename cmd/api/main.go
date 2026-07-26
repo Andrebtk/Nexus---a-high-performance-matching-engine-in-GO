@@ -144,8 +144,8 @@ func main() {
 		botUser.Balance = 10000000
 	}
 
-	transactionService := services.NewTransactionService()
-	profitLossService := services.NewProfitLossService(userService, transactionService)
+	transactionService := services.NewPostgresTransactionService(database.DB)
+	profitLossService := services.NewProfitLossService(userService, postgresUserService, transactionService)
 	orderService := services.NewOrderService(database.DB)
 
 	ex := engine.NewExchange(userService, transactionService, profitLossService, orderService, postgresUserService)

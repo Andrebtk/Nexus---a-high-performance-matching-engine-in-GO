@@ -100,12 +100,14 @@ func GetProfitLossHandler(pls *services.ProfitLossService, postgresUserService *
 
         // If userID is numeric, it's a PostgreSQL user
         if _, err := strconv.Atoi(userID); err == nil {
-            // Get profit/loss from PostgreSQL user
+            // For PostgreSQL users, calculate profit/loss from transactions
+            // since profit/loss is not stored in the database
             userIDInt, _ := strconv.Atoi(userID)
-            user, err := postgresUserService.GetUserByID(userIDInt)
+            _, err := postgresUserService.GetUserByID(userIDInt)
             if err == nil {
-                profit = user.Profit
-                loss = user.Loss
+                // Use the transaction service to calculate profit/loss for PostgreSQL users
+                // Convert userID to string format for transaction service
+                profit, loss, _ = pls.CalculateProfitLoss(strconv.Itoa(userIDInt))
             }
         } else {
             // Get profit/loss from in-memory system (for system_bot)
