@@ -21,6 +21,8 @@ function ProfilePage() {
   const navigate = useNavigate();
   const [activeOrders, setActiveOrders] = useState([]);
   const [orderHistory, setOrderHistory] = useState([]);
+  const [stockOwnership, setStockOwnership] = useState({});
+  const [currentPrices, setCurrentPrices] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -64,6 +66,28 @@ function ProfilePage() {
           const historyData = await historyResponse.json();
           console.log(`DEBUG: Received ${historyData.order_history?.length || 0} historical orders`);
           setOrderHistory(historyData.order_history || []);
+        }
+
+        // Fetch stock ownership
+        const stockResponse = await fetch(`${API_URL}/auth/stock-ownership`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        console.log(`DEBUG: Stock ownership response status: ${stockResponse.status}`);
+        if (stockResponse.ok) {
+          const stockData = await stockResponse.json();
+          console.log(`DEBUG: Received stock ownership data`, stockData);
+          setStockOwnership(stockData.stock_ownership || {});
+        }
+
+        // Fetch current stock prices
+        const pricesResponse = await fetch(`${API_URL}/current-prices`);
+        console.log(`DEBUG: Current prices response status: ${pricesResponse.status}`);
+        if (pricesResponse.ok) {
+          const pricesData = await pricesResponse.json();
+          console.log(`DEBUG: Received current prices data`, pricesData);
+          setCurrentPrices(pricesData.current_prices || {});
         }
 
       } catch (err) {
@@ -187,6 +211,57 @@ function ProfilePage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Stock Ownership Section */}
+        <div style={{
+          backgroundColor: theme.panel,
+          border: `1px solid ${theme.border}`,
+          borderRadius: '8px',
+          padding: '20px',
+          marginBottom: '20px'
+        }}>
+          <h2 style={{
+            marginTop: 0,
+            fontSize: '20px',
+            fontWeight: '600',
+            marginBottom: '15px',
+            borderBottom: `1px solid ${theme.border}`,
+            paddingBottom: '10px'
+          }}>
+            📊 Stock Ownership
+          </h2>
+
+          {loading ? (
+            <div style={{ color: theme.textMuted }}>Loading stock ownership...</div>
+          ) : Object.keys(stockOwnership).length === 0 ? (
+            <div style={{ color: theme.textMuted, textAlign: 'center', padding: '20px 0' }}>
+              No stock ownership yet. Buy some stocks to see them here!
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: `1px solid ${theme.border}` }}>
+                    <th style={{ textAlign: 'left', padding: '12px', color: theme.textMuted, fontSize: '12px', textTransform: 'uppercase' }}>Symbol</th>
+                    <th style={{ textAlign: 'right', padding: '12px', color: theme.textMuted, fontSize: '12px', textTransform: 'uppercase' }}>Quantity Owned</th>
+                    <th style={{ textAlign: 'right', padding: '12px', color: theme.textMuted, fontSize: '12px', textTransform: 'uppercase' }}>Current Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(stockOwnership).map(([symbol, quantity]) => (
+                    <tr key={symbol} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                      <td style={{ padding: '12px', fontWeight: '600' }}>{symbol}</td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>{quantity}</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: theme.buy }}>
+                        ${(quantity * (currentPrices[symbol] || 100)).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Active Orders Section */}

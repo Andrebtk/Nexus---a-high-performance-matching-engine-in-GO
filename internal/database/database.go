@@ -53,6 +53,7 @@ func createTables() error {
 		balance DECIMAL(15, 2) DEFAULT 0.00,
 		profit DECIMAL(15, 2) DEFAULT 0.00,
 		loss DECIMAL(15, 2) DEFAULT 0.00,
+		stock_ownership JSON DEFAULT '{}',
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
@@ -81,8 +82,18 @@ func createTables() error {
 		return fmt.Errorf("failed to create orders table: %v", err)
 	}
 
+	// Add stock_ownership column to users table if it doesn't exist
+	_, err = DB.Exec(`
+		ALTER TABLE users
+		ADD COLUMN IF NOT EXISTS stock_ownership JSON DEFAULT '{}';
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to add stock_ownership column: %v", err)
+	}
+
 	log.Println("Users table created/verified")
 	log.Println("Orders table created/verified")
+	log.Println("Stock ownership column added/verified")
 
 	return nil
 }

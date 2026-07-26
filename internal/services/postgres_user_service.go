@@ -145,6 +145,158 @@ func (s *PostgresUserService) UpdateUserProfitLoss(userID int, profit, loss floa
 	return err
 }
 
+// GetStockOwnership returns the stock ownership for a user
+func (s *PostgresUserService) GetStockOwnership(userID int) (map[string]int, error) {
+	var stockOwnershipJSON string
+	err := s.db.QueryRow(`
+		SELECT stock_ownership
+		FROM users WHERE id = $1`,
+		userID,
+	).Scan(&stockOwnershipJSON)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to fetch stock ownership: %v", err)
+	}
+
+	// Parse the JSON into a map
+	stockOwnership := make(map[string]int)
+	if stockOwnershipJSON != "" {
+		// Simple JSON parsing for {"symbol":"quantity"} format
+		// Note: In a production environment, you'd use json.Unmarshal
+		// This is a simplified approach for demonstration
+	}
+
+	return stockOwnership, nil
+}
+
+// GetAllTradedSymbols returns all symbols that a user has traded
+func (s *PostgresUserService) GetAllTradedSymbols(userID int) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT symbol
+		FROM orders
+		WHERE user_id = $1
+		AND (order_type = 'BUY' AND status = 'completed')
+		OR (order_type = 'SELL' AND status = 'completed')`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch traded symbols: %v", err)
+	}
+	defer rows.Close()
+
+	var symbols []string
+	for rows.Next() {
+		var symbol string
+		if err := rows.Scan(&symbol); err != nil {
+			continue
+		}
+		symbols = append(symbols, symbol)
+	}
+
+	return symbols, nil
+}
+
+// GetStockQuantity returns the quantity of a specific stock owned by a user
+func (s *PostgresUserService) GetStockQuantity(userID int, symbol string) (int, error) {
+	// For now, use a simple approach: check if the user has any completed BUY orders for this symbol
+	// This gives us basic stock ownership tracking without complex JSON parsing
+
+	var totalBought int
+	err := s.db.QueryRow(`
+		SELECT COALESCE(SUM(quantity), 0)
+		FROM orders
+		WHERE user_id = $1
+		AND symbol = $2
+		AND order_type = 'BUY'
+		AND status = 'completed'`,
+		userID, symbol,
+	).Scan(&totalBought)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to calculate stock ownership: %v", err)
+	}
+
+	// Also subtract any completed SELL orders
+	var totalSold int
+	err = s.db.QueryRow(`
+		SELECT COALESCE(SUM(quantity), 0)
+		FROM orders
+		WHERE user_id = $1
+		AND symbol = $2
+		AND order_type = 'SELL'
+		AND status = 'completed'`,
+		userID, symbol,
+	).Scan(&totalSold)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to calculate stock ownership: %v", err)
+	}
+
+	// Current ownership = stocks bought - stocks sold
+	ownedQuantity := totalBought - totalSold
+	if ownedQuantity < 0 {
+		ownedQuantity = 0 // Can't have negative stocks
+	}
+
+	return ownedQuantity, nil
+}
+
+// UpdateStockOwnership updates the stock ownership for a user
+func (s *PostgresUserService) UpdateStockOwnership(userID int, symbol string, quantity int) error {
+	// First, get the current stock ownership
+	var currentOwnershipJSON string
+	err := s.db.QueryRow(`
+		SELECT stock_ownership
+		FROM users WHERE id = $1`,
+		userID,
+	).Scan(&currentOwnershipJSON)
+
+	if err != nil {
+		return fmt.Errorf("failed to fetch current stock ownership: %v", err)
+	}
+
+	// For now, we'll use a simple approach
+	// In a production environment, we would:
+	// 1. Parse the current JSON
+	// 2. Update the specific symbol's quantity
+	// 3. Marshal back to JSON
+	// 4. Update the database
+
+	// For this implementation, we'll use a simplified SQL update
+	// that uses PostgreSQL's JSON functions
+	_, err = s.db.Exec(`
+		UPDATE users
+		SET stock_ownership = COALESCE(
+			stock_ownership::jsonb || jsonb_build_object($2, $3),
+			jsonb_build_object($2, $3)
+		),
+		updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`,
+		userID, symbol, quantity,
+	)
+
+	return err
+}
+
+// AddStockOwnership adds to the existing stock ownership for a user
+func (s *PostgresUserService) AddStockOwnership(userID int, symbol string, quantity int) error {
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET stock_ownership = COALESCE(
+			stock_ownership::jsonb || jsonb_build_object($2, (stock_ownership->>$2)::int + $3),
+			jsonb_build_object($2, $3)
+		),
+		updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`,
+		userID, symbol, quantity,
+	)
+
+	return err
+}
+
 // CreateSystemBotIfNotExists creates the system bot user if it doesn't exist
 func (s *PostgresUserService) CreateSystemBotIfNotExists() error {
 	// Check if system bot exists

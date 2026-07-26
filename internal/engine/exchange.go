@@ -15,6 +15,7 @@ type Exchange struct {
 	transactionService *services.TransactionService
 	profitLossService  *services.ProfitLossService
 	orderService       *services.OrderService
+	postgresUserService *services.PostgresUserService
 
 	mu sync.RWMutex
 }
@@ -22,13 +23,15 @@ type Exchange struct {
 func NewExchange(userService *services.UserService,
 	transactionService *services.TransactionService,
 	profitLossService *services.ProfitLossService,
-	orderService *services.OrderService) *Exchange {
+	orderService *services.OrderService,
+	postgresUserService *services.PostgresUserService) *Exchange {
 	return &Exchange{
 		books: make(map[string]*OrderBook),
 		userService:        userService,
 		transactionService: transactionService,
 		profitLossService:  profitLossService,
 		orderService:       orderService,
+		postgresUserService: postgresUserService,
 	}
 }
 
@@ -122,6 +125,44 @@ func (e *Exchange) RouteOrder(o *Order) {
 				log.Printf("Warning: Failed to update order status for order %d: %v", o.DBOrderID, err)
 			} else {
 				log.Printf("INFO: Successfully updated order %d status to completed", o.DBOrderID)
+			}
+
+			// Update stock ownership for completed orders
+			// Convert userID to integer for PostgreSQL users
+			if numericUserID, err := strconv.Atoi(o.UserID); err == nil && numericUserID > 0 && e.postgresUserService != nil {
+				matchedQuantity := originalQuantity - o.Quantity
+				matchedAmount := float64(matchedQuantity) * float64(o.Price)
+
+				if o.IsBuy {
+					// For buy orders, add the matched quantity to user's stock ownership
+					log.Printf("INFO: Adding %d shares of %s to user %d's stock ownership", matchedQuantity, o.Symbol, numericUserID)
+					err := e.postgresUserService.AddStockOwnership(numericUserID, o.Symbol, matchedQuantity)
+					if err != nil {
+						log.Printf("Warning: Failed to update stock ownership for user %d: %v", numericUserID, err)
+					}
+				} else {
+					// For sell orders, subtract the matched quantity from user's stock ownership
+					// AND credit the user's balance with the proceeds
+					log.Printf("INFO: Removing %d shares of %s from user %d's stock ownership", matchedQuantity, o.Symbol, numericUserID)
+					// Get current ownership and subtract
+					currentQuantity, err := e.postgresUserService.GetStockQuantity(numericUserID, o.Symbol)
+					if err != nil {
+						log.Printf("Warning: Failed to get current stock ownership for user %d: %v", numericUserID, err)
+						currentQuantity = 0
+					}
+					newQuantity := currentQuantity - matchedQuantity
+					err = e.postgresUserService.UpdateStockOwnership(numericUserID, o.Symbol, newQuantity)
+					if err != nil {
+						log.Printf("Warning: Failed to update stock ownership for user %d: %v", numericUserID, err)
+					}
+
+					// Credit the user's balance with the proceeds from the sale
+					log.Printf("INFO: Crediting user %d with $%.2f from sale of %d shares of %s", numericUserID, matchedAmount, matchedQuantity, o.Symbol)
+					err = e.postgresUserService.UpdateUserBalance(numericUserID, matchedAmount)
+					if err != nil {
+						log.Printf("Warning: Failed to credit user %d for sale: %v", numericUserID, err)
+					}
+				}
 			}
 		} else {
 			// Ensure the order status is set to 'active' if it's not fully matched

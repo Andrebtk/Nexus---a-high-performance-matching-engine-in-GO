@@ -275,6 +275,28 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
                     }
                 }
             }
+        } else {
+            // For SELL orders, check if user has enough stock to sell
+            var userIDInt int
+            var err error
+            if userIDInt, err = strconv.Atoi(userID); err == nil && userIDInt > 0 {
+                // Get the user's current stock ownership for this symbol
+                ownedQuantity, err := postgresUserService.GetStockQuantity(userIDInt, order.Symbol)
+                if err != nil {
+                    log.Printf("Warning: Failed to get stock ownership for user %d: %v", userIDInt, err)
+                    // If we can't get stock ownership, assume they don't own any
+                    ownedQuantity = 0
+                }
+
+                // Check if user is trying to sell more than they own
+                if order.Quantity > ownedQuantity {
+                    c.JSON(http.StatusBadRequest, gin.H{
+                        "error": fmt.Sprintf("Insufficient stock ownership. Trying to sell %d shares of %s, but only own %d shares", order.Quantity, order.Symbol, ownedQuantity),
+                    })
+                    return
+                }
+            }
+            // For system_bot, we don't check stock ownership (infinite stocks)
         }
 
         // Create order record in database for all users (including system_bot)
@@ -286,29 +308,36 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
 
         // Try to create order record in database for numeric user IDs (PostgreSQL users)
         if numericUserID, err := strconv.Atoi(userID); err == nil {
-            // Calculate the amount to deduct/add from balance
-            amount := float64(order.Quantity) * order.Price
+            // For buy orders, deduct from balance immediately (they pay when placing the order)
+            // For sell orders, don't add to balance yet (they get paid when the order is matched)
             if order.IsBuy {
-                // For buy orders, deduct from balance
-                amount = -amount
-            } else {
-                // For sell orders, add to balance
-                amount = amount
-            }
+                // Calculate the amount to deduct from balance for buy orders
+                amount := float64(order.Quantity) * order.Price * -1
 
-            // Create order record in database
-            dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
-            if err != nil {
-                log.Printf("Warning: Failed to create order record for user %d: %v", numericUserID, err)
-            } else {
-                dbOrderID = dbOrder.ID
-                log.Printf("INFO: Created order %d in database for user %d", dbOrderID, numericUserID)
-            }
+                // Create order record in database
+                dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
+                if err != nil {
+                    log.Printf("Warning: Failed to create order record for user %d: %v", numericUserID, err)
+                } else {
+                    dbOrderID = dbOrder.ID
+                    log.Printf("INFO: Created order %d in database for user %d", dbOrderID, numericUserID)
+                }
 
-            // Update the user's balance in PostgreSQL
-            err = postgresUserService.UpdateUserBalance(numericUserID, amount)
-            if err != nil {
-                log.Printf("Warning: Failed to update balance for user %d: %v", numericUserID, err)
+                // Update the user's balance in PostgreSQL for buy orders only
+                err = postgresUserService.UpdateUserBalance(numericUserID, amount)
+                if err != nil {
+                    log.Printf("Warning: Failed to update balance for user %d: %v", numericUserID, err)
+                }
+            } else {
+                // For sell orders, create the order record but don't update balance yet
+                // The balance will be updated when the order is matched in the exchange
+                dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
+                if err != nil {
+                    log.Printf("Warning: Failed to create order record for user %d: %v", numericUserID, err)
+                } else {
+                    dbOrderID = dbOrder.ID
+                    log.Printf("INFO: Created order %d in database for user %d (sell order - balance update deferred)", dbOrderID, numericUserID)
+                }
             }
         } else {
             // For non-numeric user IDs (like system_bot), create a special order record
@@ -446,6 +475,73 @@ func ProfileHandler(postgresUserService *services.PostgresUserService) gin.Handl
     }
 }
 
+func GetCurrentStockPricesHandler(ex *engine.Exchange) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Get all symbols from the exchange
+        symbols := ex.GetTickers()
+
+        // Build current prices map
+        currentPrices := make(map[string]float64)
+        for _, symbol := range symbols {
+            // Get the current best bid price (what you can sell at)
+            ob := ex.GetOrderBook(symbol)
+            if ob != nil && len(ob.Bids) > 0 {
+                // Use the best bid price (highest buy order)
+                for price := range ob.Bids {
+                    currentPrices[symbol] = float64(price)
+                    break
+                }
+            } else {
+                // Fallback to a reasonable default if no orders
+                currentPrices[symbol] = 100.00
+            }
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "current_prices": currentPrices,
+        })
+    }
+}
+
+func GetStockOwnershipHandler(postgresUserService *services.PostgresUserService) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Get user ID from JWT token
+        userIDInterface, exists := c.Get("userID")
+        if !exists {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+            return
+        }
+
+        userID := userIDInterface.(int)
+
+        // Get all symbols that the user has traded
+        symbols, err := postgresUserService.GetAllTradedSymbols(userID)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stock ownership"})
+            return
+        }
+
+        // Build stock ownership map
+        stockOwnership := make(map[string]int)
+        for _, symbol := range symbols {
+            // Calculate ownership for this symbol
+            quantity, err := postgresUserService.GetStockQuantity(userID, symbol)
+            if err != nil {
+                continue
+            }
+
+            if quantity > 0 {
+                stockOwnership[symbol] = quantity
+            }
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "user_id": userID,
+            "stock_ownership": stockOwnership,
+        })
+    }
+}
+
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 
@@ -474,6 +570,7 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 	router.GET("/book", GetOrderBookHandler(ex))
 	router.GET("/profit-loss", GetProfitLossHandler(pls, postgresUserService))
 	router.GET("/calculate-profit-loss", CalculateProfitLossHandler(pls))
+	router.GET("/current-prices", GetCurrentStockPricesHandler(ex))
 	
 
 	// Order management routes (all require authentication)
@@ -491,6 +588,7 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 		authGroup.POST("/login", LoginHandler(postgresUserService))
 		authGroup.GET("/me", JWTAuthMiddleware(), MeHandler(postgresUserService))
 		authGroup.GET("/profile", JWTAuthMiddleware(), ProfileHandler(postgresUserService))
+		authGroup.GET("/stock-ownership", JWTAuthMiddleware(), GetStockOwnershipHandler(postgresUserService))
 	}
 
 
