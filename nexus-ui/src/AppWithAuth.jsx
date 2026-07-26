@@ -4,8 +4,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { useAuth } from './context/AuthContext'
 
 const SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA"];
-const API_URL = "http://localhost:8080";
 
+const API_URL = "http://localhost:8080";
 // "TradingView / Binance" color palette
 const theme = {
   bg: '#0b0e11',
@@ -29,6 +29,7 @@ function AppContent() {
   const [quantity, setQuantity] = useState("");
   const [isBuy, setIsBuy] = useState(true);
   const [profitLoss, setProfitLoss] = useState({ profit: 0, loss: 0, net: 0, loading: true, error: null });
+  const [stockOwnership, setStockOwnership] = useState({});
 
   const currentPrice = currentPrices[activeSymbol] || 0;
   const priceHistory = histories[activeSymbol] || [];
@@ -112,6 +113,35 @@ function AppContent() {
     const interval = setInterval(fetchOrderBook, 1000);
     return () => clearInterval(interval);
   }, [activeSymbol]);
+
+  // Fetch stock ownership for authenticated users
+  useEffect(() => {
+    const fetchStockOwnership = async () => {
+      if (!user || !isAuthenticated) return;
+
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const res = await fetch(`${API_URL}/auth/stock-ownership`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setStockOwnership(data.stock_ownership || {});
+        }
+      } catch (err) {
+        console.error("Failed to fetch stock ownership:", err);
+      }
+    };
+
+    fetchStockOwnership();
+    const interval = setInterval(fetchStockOwnership, 10000); // Refresh every 10 seconds
+    return () => clearInterval(interval);
+  }, [user, isAuthenticated, activeSymbol]);
 
   const submitOrder = async (e) => {
     e.preventDefault();
@@ -463,17 +493,27 @@ function AppContent() {
                 </div>
               </div>
 
-              {/* Input Quantity */}
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <label style={{ fontSize: '12px', color: theme.textMuted, marginBottom: '5px' }}>Amount</label>
-                <input
-                  type="number"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                  required
-                  style={{ padding: '12px', borderRadius: '4px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: '#fff', outline: 'none', fontSize: '14px' }}
-                />
-              </div>
+               {/* Input Quantity */}
+               <div style={{ display: 'flex', flexDirection: 'column' }}>
+                 <label style={{ fontSize: '12px', color: theme.textMuted, marginBottom: '5px' }}>Amount</label>
+                 <input
+                   type="number"
+                   value={quantity}
+                   onChange={(e) => setQuantity(e.target.value)}
+                   required
+                   style={{ padding: '12px', borderRadius: '4px', border: `1px solid ${theme.border}`, backgroundColor: theme.bg, color: '#fff', outline: 'none', fontSize: '14px' }}
+                 />
+                  {/* Show stock ownership for SELL orders */}
+                  {!isBuy && user && (
+                    <div style={{ marginTop: '8px', fontSize: '12px', color: theme.textMuted }}>
+                      <span style={{ color: theme.textMain }}>You own: </span>
+                      <span style={{ color: theme.buy, fontWeight: 'bold' }}>
+                        {stockOwnership[activeSymbol] !== undefined ? stockOwnership[activeSymbol] : 'Loading...'}
+                      </span>
+                      <span style={{ color: theme.textMuted }}> shares of {activeSymbol}</span>
+                    </div>
+                  )}
+               </div>
 
               {/* Submit Button */}
               <button type="submit" style={{

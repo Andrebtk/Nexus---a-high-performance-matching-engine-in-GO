@@ -125,14 +125,15 @@ func (ob *OrderBook) matchBuy(o *Order) {
 func (ob *OrderBook) matchSell(o *Order) {
 	for o.Quantity > 0 && len(ob.bidPrices) > 0 {
 		bestBid := ob.bidPrices[0]
+		// Sell order matches if sell price <= best bid price (seller accepts bidder's price)
 		if o.Price > bestBid {
-			return 
+			return
 		}
 
 		limit := ob.Bids[bestBid]
 
 		for o.Quantity > 0 && !limit.doubleLinkedList.IsEmpty() {
-			tmp := limit.doubleLinkedList.head 
+			tmp := limit.doubleLinkedList.head
 
 			if o.Quantity >= tmp.Quantity {
 

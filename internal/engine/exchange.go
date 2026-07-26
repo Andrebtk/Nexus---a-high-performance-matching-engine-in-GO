@@ -115,16 +115,31 @@ func (e *Exchange) RouteOrder(o *Order) {
 	log.Printf("DEBUG: [ORDER STATUS] Checking order status update for order %s, DBOrderID=%d, Quantity=%d, orderService=%v",
 		o.Id, o.DBOrderID, o.Quantity, e.orderService != nil)
 
-	if e.orderService != nil && o.DBOrderID > 0 {
+	if e.orderService != nil {
 		// Check if this order was fully matched (quantity is 0)
 		if o.Quantity == 0 {
 			// Mark the order as completed in the database
-			log.Printf("INFO: Order %d was fully matched, updating status to completed", o.DBOrderID)
-			err := e.orderService.CompleteOrder(o.DBOrderID)
-			if err != nil {
-				log.Printf("Warning: Failed to update order status for order %d: %v", o.DBOrderID, err)
+			if o.DBOrderID > 0 {
+				log.Printf("INFO: Order %d was fully matched, updating status to completed", o.DBOrderID)
+				err := e.orderService.CompleteOrder(o.DBOrderID)
+				if err != nil {
+					log.Printf("Warning: Failed to update order status for order %d: %v", o.DBOrderID, err)
+				} else {
+					log.Printf("INFO: Successfully updated order %d status to completed", o.DBOrderID)
+				}
 			} else {
-				log.Printf("INFO: Successfully updated order %d status to completed", o.DBOrderID)
+				// Handle orders with DBOrderID=0 (system_bot or failed creation)
+				log.Printf("WARNING: Order %s was fully matched but has DBOrderID=0, attempting alternative status update", o.Id)
+				// Try to find and update the order by other identifiers
+				if numericUserID, err := strconv.Atoi(o.UserID); err == nil && numericUserID > 0 {
+					// Try to update by user ID, symbol, price, and timestamp
+					err := e.orderService.CompleteOrderByDetails(numericUserID, o.Symbol, float64(o.Price), o.TimeStamp)
+					if err != nil {
+						log.Printf("Warning: Failed to update order status for system_bot order: %v", err)
+					} else {
+						log.Printf("INFO: Successfully updated system_bot order status using alternative method")
+					}
+				}
 			}
 
 			// Update stock ownership for completed orders
@@ -166,11 +181,13 @@ func (e *Exchange) RouteOrder(o *Order) {
 			}
 		} else {
 			// Ensure the order status is set to 'active' if it's not fully matched
-			log.Printf("INFO: Order %d partially matched, remaining quantity: %d", o.DBOrderID, o.Quantity)
+			if o.DBOrderID > 0 {
+				log.Printf("INFO: Order %d partially matched, remaining quantity: %d", o.DBOrderID, o.Quantity)
+			} else {
+				log.Printf("INFO: Order %s partially matched, remaining quantity: %d", o.Id, o.Quantity)
+			}
 			// No need to update status here as it should already be 'active'
 		}
-	} else if o.DBOrderID == 0 {
-		log.Printf("WARNING: Order %s has DBOrderID=0, cannot update status in database", o.Id)
 	} else {
 		log.Printf("WARNING: Order %s cannot update status - orderService is nil", o.Id)
 	}

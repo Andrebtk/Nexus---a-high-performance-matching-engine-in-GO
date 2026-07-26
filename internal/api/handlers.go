@@ -301,6 +301,7 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
 
         // Create order record in database for all users (including system_bot)
         var dbOrderID int
+        var orderCreationFailed = false
         orderType := "BUY"
         if !order.IsBuy {
             orderType = "SELL"
@@ -317,23 +318,26 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
                 // Create order record in database
                 dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
                 if err != nil {
-                    log.Printf("Warning: Failed to create order record for user %d: %v", numericUserID, err)
+                    log.Printf("ERROR: Failed to create order record for user %d: %v", numericUserID, err)
+                    orderCreationFailed = true
                 } else {
                     dbOrderID = dbOrder.ID
                     log.Printf("INFO: Created order %d in database for user %d", dbOrderID, numericUserID)
-                }
 
-                // Update the user's balance in PostgreSQL for buy orders only
-                err = postgresUserService.UpdateUserBalance(numericUserID, amount)
-                if err != nil {
-                    log.Printf("Warning: Failed to update balance for user %d: %v", numericUserID, err)
+                    // Update the user's balance in PostgreSQL for buy orders only
+                    err = postgresUserService.UpdateUserBalance(numericUserID, amount)
+                    if err != nil {
+                        log.Printf("Warning: Failed to update balance for user %d: %v", numericUserID, err)
+                        // Don't fail the whole order if balance update fails
+                    }
                 }
             } else {
                 // For sell orders, create the order record but don't update balance yet
                 // The balance will be updated when the order is matched in the exchange
                 dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
                 if err != nil {
-                    log.Printf("Warning: Failed to create order record for user %d: %v", numericUserID, err)
+                    log.Printf("ERROR: Failed to create order record for user %d: %v", numericUserID, err)
+                    orderCreationFailed = true
                 } else {
                     dbOrderID = dbOrder.ID
                     log.Printf("INFO: Created order %d in database for user %d (sell order - balance update deferred)", dbOrderID, numericUserID)
@@ -344,11 +348,20 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             // We'll use user_id = 0 for system_bot orders to track them in the database
             dbOrder, err := orderService.CreateOrder(0, order.Symbol, orderType, order.Quantity, order.Price, "active")
             if err != nil {
-                log.Printf("Warning: Failed to create order record for system_bot: %v", err)
+                log.Printf("ERROR: Failed to create order record for system_bot: %v", err)
+                orderCreationFailed = true
             } else {
                 dbOrderID = dbOrder.ID
                 log.Printf("INFO: Created order %d in database for system_bot", dbOrderID)
             }
+        }
+
+        // If order creation failed, don't proceed with the order
+        if orderCreationFailed {
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "error": "Failed to create order in database. Please try again.",
+            })
+            return
         }
 
         // Create and add order to the exchange

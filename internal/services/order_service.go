@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"log"
+	"time"
 )
 
 type OrderService struct {
@@ -151,4 +152,54 @@ func (s *OrderService) CompleteOrder(orderID int) error {
 
 func (s *OrderService) CancelOrder(orderID int) error {
 	return s.UpdateOrderStatus(orderID, "cancelled")
+}
+
+// CompleteOrderByDetails updates order status to completed using order details instead of just ID
+// This is used for orders that were created with DBOrderID=0 (system_bot orders)
+func (s *OrderService) CompleteOrderByDetails(userID int, symbol string, price float64, timestamp time.Time) error {
+	// First try to find the exact order by all details
+	query := `
+	UPDATE orders
+	SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+	WHERE user_id = $1
+	AND symbol = $2
+	AND price = $3
+	AND created_at = $4
+	AND status = 'active'`
+
+	result, err := s.db.Exec(query, userID, symbol, price, timestamp)
+	if err != nil {
+		log.Printf("Failed to complete order by details: %v", err)
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get rows affected: %v", err)
+		return err
+	}
+
+	if rowsAffected == 0 {
+		// No order found with exact match, try with a small time window
+		log.Printf("No order found with exact timestamp match, trying with time window")
+		timeWindowQuery := `
+		UPDATE orders
+		SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = $1
+		AND symbol = $2
+		AND price = $3
+		AND created_at BETWEEN $4 AND $5
+		AND status = 'active'
+		LIMIT 1`
+
+		// Add 1 second window to handle rapid orders
+		endTime := timestamp.Add(1 * time.Second)
+		_, err = s.db.Exec(timeWindowQuery, userID, symbol, price, timestamp, endTime)
+		if err != nil {
+			log.Printf("Failed to complete order with time window: %v", err)
+			return err
+		}
+	}
+
+	return nil
 }
