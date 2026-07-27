@@ -1,9 +1,16 @@
-package engine 
+package engine
 
 import (
 	"sort"
 	"sync"
 )
+
+// Fill represents a matched portion of an order
+type Fill struct {
+	MakerOrder *Order
+	Quantity   int
+	Price      uint64
+}
 
 
 
@@ -87,47 +94,57 @@ func (ob *OrderBook) RemovePrice(price uint64, isBuy bool) {
 
 
 
-func (ob *OrderBook) matchBuy(o *Order) {
+func (ob *OrderBook) matchBuy(o *Order) []Fill {
+	var fills []Fill
 	for o.Quantity > 0 && len(ob.askPrices) > 0 {
 		bestAsk := ob.askPrices[0]
-		
-		if o.Price < bestAsk {
-			return 
-		} 
 
+		if o.Price < bestAsk {
+			return fills
+		}
 
 		limit := ob.Asks[bestAsk]
 
-		for o.Quantity >0 && !limit.doubleLinkedList.IsEmpty() {
-			tmp := limit.doubleLinkedList.head 
+		for o.Quantity > 0 && !limit.doubleLinkedList.IsEmpty() {
+			tmp := limit.doubleLinkedList.head
 
 			if o.Quantity >= tmp.Quantity {
-
-				remaining := tmp.Quantity
+				matchedQty := tmp.Quantity
 				limit.Pop()
-				o.Quantity -= remaining
+				o.Quantity -= matchedQty
+				fills = append(fills, Fill{
+					MakerOrder: tmp,
+					Quantity:   matchedQty,
+					Price:      bestAsk,
+				})
 			} else {
-				tmp.Quantity -= o.Quantity
-				limit.TotalVolume -= o.Quantity
+				matchedQty := o.Quantity
+				tmp.Quantity -= matchedQty
+				limit.TotalVolume -= matchedQty
 				o.Quantity = 0
+				fills = append(fills, Fill{
+					MakerOrder: tmp,
+					Quantity:   matchedQty,
+					Price:      bestAsk,
+				})
 			}
 		}
-
 
 		if limit.doubleLinkedList.IsEmpty() {
 			delete(ob.Asks, bestAsk)
 			ob.askPrices = ob.askPrices[1:]
 		}
-		
 	}
+	return fills
 }
 
-func (ob *OrderBook) matchSell(o *Order) {
+func (ob *OrderBook) matchSell(o *Order) []Fill {
+	var fills []Fill
 	for o.Quantity > 0 && len(ob.bidPrices) > 0 {
 		bestBid := ob.bidPrices[0]
 		// Sell order matches if sell price <= best bid price (seller accepts bidder's price)
 		if o.Price > bestBid {
-			return
+			return fills
 		}
 
 		limit := ob.Bids[bestBid]
@@ -136,14 +153,24 @@ func (ob *OrderBook) matchSell(o *Order) {
 			tmp := limit.doubleLinkedList.head
 
 			if o.Quantity >= tmp.Quantity {
-
-				remaining := tmp.Quantity
+				matchedQty := tmp.Quantity
 				limit.Pop()
-				o.Quantity -= remaining
+				o.Quantity -= matchedQty
+				fills = append(fills, Fill{
+					MakerOrder: tmp,
+					Quantity:   matchedQty,
+					Price:      bestBid,
+				})
 			} else {
-				tmp.Quantity -= o.Quantity
-				limit.TotalVolume -= o.Quantity
+				matchedQty := o.Quantity
+				tmp.Quantity -= matchedQty
+				limit.TotalVolume -= matchedQty
 				o.Quantity = 0
+				fills = append(fills, Fill{
+					MakerOrder: tmp,
+					Quantity:   matchedQty,
+					Price:      bestBid,
+				})
 			}
 		}
 
@@ -152,6 +179,7 @@ func (ob *OrderBook) matchSell(o *Order) {
 			ob.bidPrices = ob.bidPrices[1:]
 		}
 	}
+	return fills
 }
 
 func (ob *OrderBook) placeMakerOrder(o *Order) {
@@ -180,18 +208,21 @@ func (ob *OrderBook) placeMakerOrder(o *Order) {
 
 
 
-func (ob *OrderBook) ProcessOrder(o *Order) {
+func (ob *OrderBook) ProcessOrder(o *Order) []Fill {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
-	if o.IsBuy {
-		ob.matchBuy(o)
-	} else {
-		ob.matchSell(o)
-	}
+	var fills []Fill
 
+	if o.IsBuy {
+		fills = ob.matchBuy(o)
+	} else {
+		fills = ob.matchSell(o)
+	}
 
 	if o.Quantity > 0 {
 		ob.placeMakerOrder(o)
 	}
+
+	return fills
 }

@@ -289,10 +289,20 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
                     ownedQuantity = 0
                 }
 
-                // Check if user is trying to sell more than they own
-                if order.Quantity > ownedQuantity {
+                // Get the quantity already reserved in active sell orders
+                reservedQuantity, err := orderService.GetActiveSellQuantity(userIDInt, order.Symbol)
+                if err != nil {
+                    log.Printf("Warning: Failed to get reserved sell quantity for user %d: %v", userIDInt, err)
+                    reservedQuantity = 0
+                }
+
+                // Calculate available quantity
+                availableQuantity := ownedQuantity - reservedQuantity
+
+                // Check if user is trying to sell more than they have available
+                if order.Quantity > availableQuantity {
                     c.JSON(http.StatusBadRequest, gin.H{
-                        "error": fmt.Sprintf("Insufficient stock ownership. Trying to sell %d shares of %s, but only own %d shares", order.Quantity, order.Symbol, ownedQuantity),
+                        "error": fmt.Sprintf("Insufficient stock ownership. Trying to sell %d shares of %s, but only %d available (owned: %d, already reserved in pending sell orders: %d)", order.Quantity, order.Symbol, availableQuantity, ownedQuantity, reservedQuantity),
                     })
                     return
                 }
@@ -517,7 +527,7 @@ func GetCurrentStockPricesHandler(ex *engine.Exchange) gin.HandlerFunc {
     }
 }
 
-func GetStockOwnershipHandler(postgresUserService *services.PostgresUserService) gin.HandlerFunc {
+func GetStockOwnershipHandler(postgresUserService *services.PostgresUserService, orderService *services.OrderService) gin.HandlerFunc {
     return func(c *gin.Context) {
         // Get user ID from JWT token
         userIDInterface, exists := c.Get("userID")
@@ -544,8 +554,16 @@ func GetStockOwnershipHandler(postgresUserService *services.PostgresUserService)
                 continue
             }
 
-            if quantity > 0 {
-                stockOwnership[symbol] = quantity
+            // Get reserved quantity in active sell orders
+            reserved, err := orderService.GetActiveSellQuantity(userID, symbol)
+            if err != nil {
+                reserved = 0
+            }
+
+            // Show available quantity (owned - reserved)
+            available := quantity - reserved
+            if available > 0 {
+                stockOwnership[symbol] = available
             }
         }
 
@@ -595,15 +613,15 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 	router.POST("/orders/:id/complete", JWTAuthMiddleware(), CompleteOrderHandler(orderService))
 	router.POST("/orders/:id/cancel", JWTAuthMiddleware(), CancelOrderHandler(orderService))
 
-	// Authentication routes
-	authGroup := router.Group("/auth")
-	{
-		authGroup.POST("/register", RegisterHandler(postgresUserService))
-		authGroup.POST("/login", LoginHandler(postgresUserService))
-		authGroup.GET("/me", JWTAuthMiddleware(), MeHandler(postgresUserService))
-		authGroup.GET("/profile", JWTAuthMiddleware(), ProfileHandler(postgresUserService))
-		authGroup.GET("/stock-ownership", JWTAuthMiddleware(), GetStockOwnershipHandler(postgresUserService))
-	}
+		// Authentication routes
+		authGroup := router.Group("/auth")
+		{
+			authGroup.POST("/register", RegisterHandler(postgresUserService))
+			authGroup.POST("/login", LoginHandler(postgresUserService))
+			authGroup.GET("/me", JWTAuthMiddleware(), MeHandler(postgresUserService))
+			authGroup.GET("/profile", JWTAuthMiddleware(), ProfileHandler(postgresUserService))
+			authGroup.GET("/stock-ownership", JWTAuthMiddleware(), GetStockOwnershipHandler(postgresUserService, orderService))
+		}
 
 
     /*

@@ -154,6 +154,23 @@ func (s *OrderService) CancelOrder(orderID int) error {
 	return s.UpdateOrderStatus(orderID, "cancelled")
 }
 
+// GetActiveSellQuantity returns the quantity currently reserved by the
+// user's active (not yet completed/cancelled) sell orders for a symbol.
+func (s *OrderService) GetActiveSellQuantity(userID int, symbol string) (int, error) {
+	var total int
+	err := s.db.QueryRow(`
+		SELECT COALESCE(SUM(quantity), 0)
+		FROM orders
+		WHERE user_id = $1 AND symbol = $2 AND order_type = 'SELL' AND status = 'active'`,
+		userID, symbol,
+	).Scan(&total)
+	if err != nil {
+		log.Printf("Failed to get active sell quantity: %v", err)
+		return 0, err
+	}
+	return total, nil
+}
+
 // CompleteOrderByDetails updates order status to completed using order details instead of just ID
 // This is used for orders that were created with DBOrderID=0 (system_bot orders)
 func (s *OrderService) CompleteOrderByDetails(userID int, symbol string, price float64, timestamp time.Time) error {

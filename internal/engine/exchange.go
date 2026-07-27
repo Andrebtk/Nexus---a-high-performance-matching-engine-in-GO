@@ -84,7 +84,12 @@ func (e *Exchange) RouteOrder(o *Order) {
 	log.Printf("DEBUG: Processing order %s: symbol=%s, isBuy=%t, quantity=%d, price=%d, user=%s, dbOrderID=%d",
 		o.Id, o.Symbol, o.IsBuy, o.Quantity, o.Price, o.UserID, o.DBOrderID)
 
-	book.ProcessOrder(o)
+	fills := book.ProcessOrder(o)
+
+	// Process fills to settle maker orders
+	for _, fill := range fills {
+		e.settleMakerFill(fill)
+	}
 
 	log.Printf("DEBUG: After processing order %s: remaining quantity=%d, matched quantity=%d",
 		o.Id, o.Quantity, originalQuantity - o.Quantity)
@@ -236,6 +241,100 @@ func (e *Exchange) RouteOrder(o *Order) {
 
 
 
+
+// settleMakerFill handles the settlement of maker orders that have been matched
+func (e *Exchange) settleMakerFill(fill Fill) {
+	maker := fill.MakerOrder
+	matchedQty := fill.Quantity
+	tradeAmount := float64(matchedQty) * float64(fill.Price)
+
+	log.Printf("INFO: [SETTLE MAKER] Processing fill for maker order %s, quantity=%d, price=%d, user=%s, dbOrderID=%d",
+		maker.Id, matchedQty, fill.Price, maker.UserID, maker.DBOrderID)
+
+	// Check if this is a PostgreSQL user (numeric user ID)
+	if numericUserID, err := strconv.Atoi(maker.UserID); err == nil && numericUserID > 0 {
+		if maker.IsBuy {
+			// Maker was buying: record cost basis and update stock ownership
+			err := e.costBasisService.RecordBuy(numericUserID, maker.Symbol, matchedQty, float64(fill.Price))
+			if err != nil {
+				log.Printf("Warning: Failed to record cost basis for maker buy order: %v", err)
+			}
+
+			// Update stock ownership
+			err = e.postgresUserService.AddStockOwnership(numericUserID, maker.Symbol, matchedQty)
+			if err != nil {
+				log.Printf("Warning: Failed to update stock ownership for maker buy: %v", err)
+			}
+		} else {
+			// Maker was selling: calculate realized P&L and update balance
+			realized, err := e.costBasisService.RecordSell(numericUserID, maker.Symbol, matchedQty, float64(fill.Price))
+			if err != nil {
+				log.Printf("Warning: Failed to record cost basis for maker sell order: %v", err)
+			} else if realized != 0 {
+				// Update realized P&L
+				err := e.postgresUserService.AddRealizedPL(numericUserID, realized)
+				if err != nil {
+					log.Printf("Warning: Failed to update realized P&L for maker: %v", err)
+				} else {
+					log.Printf("INFO: Realized P&L for maker %d: $%.2f (symbol: %s, quantity: %d, sellPrice: $%.2f)",
+						numericUserID, realized, maker.Symbol, matchedQty, float64(fill.Price))
+				}
+			}
+
+			// Update stock ownership
+			currentQuantity, err := e.postgresUserService.GetStockQuantity(numericUserID, maker.Symbol)
+			if err != nil {
+				log.Printf("Warning: Failed to get current stock ownership for maker: %v", err)
+				currentQuantity = 0
+			}
+			newQuantity := currentQuantity - matchedQty
+			err = e.postgresUserService.UpdateStockOwnership(numericUserID, maker.Symbol, newQuantity)
+			if err != nil {
+				log.Printf("Warning: Failed to update stock ownership for maker sell: %v", err)
+			}
+
+			// Credit the maker's balance with the proceeds from the sale
+			err = e.postgresUserService.UpdateUserBalance(numericUserID, tradeAmount)
+			if err != nil {
+				log.Printf("Warning: Failed to credit maker for sale: %v", err)
+			}
+		}
+
+		// Record transaction for the maker
+		transactionType := "trade"
+		if maker.IsBuy {
+			// Maker was buying, so this is a negative transaction (money spent)
+			e.transactionService.RecordTransaction(maker.UserID, maker.Id, transactionType, -tradeAmount)
+		} else {
+			// Maker was selling, so this is a positive transaction (money received)
+			e.transactionService.RecordTransaction(maker.UserID, maker.Id, transactionType, tradeAmount)
+		}
+
+		// This is the KEY FIX: Mark the maker order as completed if it's fully matched
+		if maker.Quantity == 0 && maker.DBOrderID > 0 {
+			log.Printf("INFO: [MAKER COMPLETION] Maker order %d was fully matched, updating status to completed", maker.DBOrderID)
+			err := e.orderService.CompleteOrder(maker.DBOrderID)
+			if err != nil {
+				log.Printf("Warning: Failed to complete maker order %d: %v", maker.DBOrderID, err)
+			} else {
+				log.Printf("INFO: Successfully completed maker order %d", maker.DBOrderID)
+			}
+		} else if maker.Quantity == 0 {
+			// Handle orders with DBOrderID=0 (system_bot or failed creation)
+			log.Printf("WARNING: [MAKER COMPLETION] Maker order %s was fully matched but has DBOrderID=0", maker.Id)
+			if numericUserID, err := strconv.Atoi(maker.UserID); err == nil && numericUserID > 0 {
+				err := e.orderService.CompleteOrderByDetails(numericUserID, maker.Symbol, float64(fill.Price), maker.TimeStamp)
+				if err != nil {
+					log.Printf("Warning: Failed to complete system_bot maker order: %v", err)
+				} else {
+					log.Printf("INFO: Successfully completed system_bot maker order using alternative method")
+				}
+			}
+		}
+	} else {
+		log.Printf("DEBUG: [SETTLE MAKER] Maker order %s belongs to non-PostgreSQL user (userID=%s), skipping settlement", maker.Id, maker.UserID)
+	}
+}
 
 func (ex *Exchange) GetTickers() []string {
 	ex.mu.RLock()
