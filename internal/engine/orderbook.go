@@ -112,6 +112,7 @@ func (ob *OrderBook) matchBuy(o *Order) []Fill {
 				matchedQty := tmp.Quantity
 				limit.Pop()
 				o.Quantity -= matchedQty
+				tmp.Quantity = 0 // FIX: Set maker quantity to 0 when fully matched
 				fills = append(fills, Fill{
 					MakerOrder: tmp,
 					Quantity:   matchedQty,
@@ -156,6 +157,7 @@ func (ob *OrderBook) matchSell(o *Order) []Fill {
 				matchedQty := tmp.Quantity
 				limit.Pop()
 				o.Quantity -= matchedQty
+				tmp.Quantity = 0 // FIX: Set maker quantity to 0 when fully matched
 				fills = append(fills, Fill{
 					MakerOrder: tmp,
 					Quantity:   matchedQty,
