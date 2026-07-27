@@ -440,31 +440,77 @@ func CompleteOrderHandler(orderService *services.OrderService) gin.HandlerFunc {
     }
 }
 
-func CancelOrderHandler(orderService *services.OrderService) gin.HandlerFunc {
-    return func(c *gin.Context) {
-          orderID := c.Param("id")
-        if orderID == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Missing order ID parameter"})
-            return
-        }
+func CancelOrderHandler(ex *engine.Exchange, orderService *services.OrderService, postgresUserService *services.PostgresUserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		orderIDParam := c.Param("id")
+		if orderIDParam == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing order ID parameter"})
+			return
+		}
 
-        // Convert orderID to integer
-        orderIDInt, err := strconv.Atoi(orderID)
-        if err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
-            return
-        }
+		orderIDInt, err := strconv.Atoi(orderIDParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+			return
+		}
 
-        err = orderService.CancelOrder(orderIDInt)
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel order"})
-            return
-        }
+		userIDInterface, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+		authUserID := userIDInterface.(int)
 
-        c.JSON(http.StatusOK, gin.H{
-            "message": "Order marked as cancelled successfully",
-        })
-    }
+		order, err := orderService.GetOrderByID(orderIDInt)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+			return
+		}
+
+		if order.UserID != authUserID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You do not have permission to cancel this order"})
+			return
+		}
+
+		if order.Status != "active" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Cannot cancel order with status '%s'", order.Status)})
+			return
+		}
+
+		// Remove the resting order from the live matching engine first.
+		// If this fails, the order was likely just matched — don't touch the DB.
+		if _, err := ex.CancelOrder(order.Symbol, orderIDInt); err != nil {
+			log.Printf("WARNING: Failed to remove order %d from live order book: %v", orderIDInt, err)
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "Order could not be cancelled — it may have just been matched. Please refresh.",
+			})
+			return
+		}
+
+		if err := orderService.CancelOrder(orderIDInt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel order"})
+			return
+		}
+
+		// BUY orders had funds deducted upfront when placed — refund them.
+		// SELL orders never had balance credited or stock deducted upfront
+		// (that only happens on fill), so there's nothing to refund there.
+		if order.OrderType == "BUY" {
+			refundAmount := float64(order.Quantity) * order.Price
+			if err := postgresUserService.UpdateUserBalance(authUserID, refundAmount); err != nil {
+				log.Printf("WARNING: Failed to refund balance for cancelled order %d: %v", orderIDInt, err)
+			} else {
+				log.Printf("INFO: Successfully refunded $%.2f to user %d for cancelled order %d", refundAmount, authUserID, orderIDInt)
+			}
+		}
+
+		log.Printf("INFO: Order %d cancelled by user %d", orderIDInt, authUserID)
+
+		c.JSON(http.StatusOK, gin.H{
+			"message":  "Order cancelled successfully",
+			"order_id": orderIDInt,
+		})
+	}
 }
 
 func ProfileHandler(postgresUserService *services.PostgresUserService) gin.HandlerFunc {
@@ -611,7 +657,7 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 	router.GET("/orders/history", JWTAuthMiddleware(), GetOrderHistoryHandler(orderService))
 	router.POST("/order", JWTAuthMiddleware(), PlaceOrderHandler(ex, postgresUserService, orderService))
 	router.POST("/orders/:id/complete", JWTAuthMiddleware(), CompleteOrderHandler(orderService))
-	router.POST("/orders/:id/cancel", JWTAuthMiddleware(), CancelOrderHandler(orderService))
+	router.POST("/orders/:id/cancel", JWTAuthMiddleware(), CancelOrderHandler(ex, orderService, postgresUserService))
 
 		// Authentication routes
 		authGroup := router.Group("/auth")

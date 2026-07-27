@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"time"
 )
@@ -152,6 +153,34 @@ func (s *OrderService) CompleteOrder(orderID int) error {
 
 func (s *OrderService) CancelOrder(orderID int) error {
 	return s.UpdateOrderStatus(orderID, "cancelled")
+}
+
+func (s *OrderService) GetOrderByID(orderID int) (*Order, error) {
+	query := `
+	SELECT id, user_id, symbol, order_type, quantity, price, status, created_at, updated_at
+	FROM orders
+	WHERE id = $1`
+
+	var order Order
+	err := s.db.QueryRow(query, orderID).Scan(
+		&order.ID,
+		&order.UserID,
+		&order.Symbol,
+		&order.OrderType,
+		&order.Quantity,
+		&order.Price,
+		&order.Status,
+		&order.CreatedAt,
+		&order.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("order not found")
+		}
+		log.Printf("Failed to fetch order %d: %v", orderID, err)
+		return nil, err
+	}
+	return &order, nil
 }
 
 // GetActiveSellQuantity returns the quantity currently reserved by the

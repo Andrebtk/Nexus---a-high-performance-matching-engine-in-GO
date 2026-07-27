@@ -532,22 +532,27 @@ function AppContent() {
                     <span style={{ color: theme.buy, fontWeight: 'bold' }}>
                       ${Math.round(currentPrice)}
                     </span>
-                    <button
-                      onClick={() => setPrice(Math.round(currentPrice).toString())}
-                      style={{
-                        marginLeft: '8px',
-                        padding: '4px 8px',
-                        backgroundColor: theme.buy,
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '11px',
-                        fontWeight: '600'
-                      }}
-                    >
-                      Use Current Price
-                    </button>
+                     <button
+                       type="button"
+                       onClick={(e) => {
+                         e.preventDefault();
+                         e.stopPropagation();
+                         setPrice(Math.round(currentPrice).toString());
+                       }}
+                       style={{
+                         marginLeft: '8px',
+                         padding: '4px 8px',
+                         backgroundColor: theme.buy,
+                         color: 'white',
+                         border: 'none',
+                         borderRadius: '4px',
+                         cursor: 'pointer',
+                         fontSize: '11px',
+                         fontWeight: '600'
+                       }}
+                     >
+                       Use Current Price
+                     </button>
                   </div>
                 )}
               </div>

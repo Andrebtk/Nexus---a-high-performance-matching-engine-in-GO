@@ -17,7 +17,7 @@ const theme = {
 };
 
 function ProfilePage() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const navigate = useNavigate();
   const [activeOrders, setActiveOrders] = useState([]);
   const [orderHistory, setOrderHistory] = useState([]);
@@ -25,6 +25,7 @@ function ProfilePage() {
   const [currentPrices, setCurrentPrices] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [cancellingId, setCancellingId] = useState(null);
 
   useEffect(() => {
     if (!user || !user.id) {
@@ -116,6 +117,42 @@ function ProfilePage() {
       case 'completed': return theme.buy; // Green
       case 'cancelled': return theme.sell; // Red
       default: return theme.textMuted;
+    }
+  };
+
+  const handleCancelOrder = async (orderId) => {
+    if (!window.confirm("Cancel this order?")) return;
+
+    try {
+      setCancellingId(orderId);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/orders/${orderId}/cancel`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        setActiveOrders(prev => prev.filter(o => o.id !== orderId));
+
+        // Refresh user data to show updated balance
+        const userRes = await fetch(`${API_URL}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (userRes.ok) {
+          const updatedUser = await userRes.json();
+          // Update the user in auth context
+          setUser(updatedUser.user);
+        }
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to cancel order');
+      }
+    } catch (err) {
+      console.error('Failed to cancel order:', err);
+      alert('Failed to cancel order. Please try again.');
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -303,6 +340,7 @@ function ProfilePage() {
                     <th style={{ textAlign: 'right', padding: '12px', color: theme.textMuted, fontSize: '12px', textTransform: 'uppercase' }}>Total</th>
                     <th style={{ textAlign: 'left', padding: '12px', color: theme.textMuted, fontSize: '12px', textTransform: 'uppercase' }}>Created</th>
                     <th style={{ textAlign: 'left', padding: '12px', color: theme.textMuted, fontSize: '12px', textTransform: 'uppercase' }}>Status</th>
+                    <th style={{ textAlign: 'right', padding: '12px', color: theme.textMuted, fontSize: '12px', textTransform: 'uppercase' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -330,6 +368,24 @@ function ProfilePage() {
                         fontWeight: '600'
                       }}>
                         {order.status.toUpperCase()}
+                      </td>
+                      <td style={{ padding: '12px', textAlign: 'right' }}>
+                        <button
+                          onClick={() => handleCancelOrder(order.id)}
+                          disabled={cancellingId === order.id}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: cancellingId === order.id ? theme.textMuted : theme.sell,
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: cancellingId === order.id ? 'not-allowed' : 'pointer',
+                            fontSize: '12px',
+                            fontWeight: '600'
+                          }}
+                        >
+                          {cancellingId === order.id ? 'Cancelling...' : 'Cancel'}
+                        </button>
                       </td>
                     </tr>
                   ))}

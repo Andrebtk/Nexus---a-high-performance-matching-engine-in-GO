@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"sync"
 	"Nexus/internal/services"
 	"Nexus/internal/models"
@@ -359,4 +360,24 @@ func (ex *Exchange) GetOrderBook(symbol string) *OrderBook {
 		return nil
 	}
 	return ob
+}
+
+// CancelOrder removes a resting order for the given symbol from the
+// matching engine. It does not touch the database — callers are
+// responsible for persisting the cancellation and any refunds.
+func (ex *Exchange) CancelOrder(symbol string, dbOrderID int) (*Order, error) {
+	ex.mu.RLock()
+	book, ok := ex.books[symbol]
+	ex.mu.RUnlock()
+
+	if !ok {
+		return nil, errors.New("order book not found for symbol")
+	}
+
+	order := book.CancelOrder(dbOrderID)
+	if order == nil {
+		return nil, errors.New("order not found in order book (it may already be filled)")
+	}
+
+	return order, nil
 }

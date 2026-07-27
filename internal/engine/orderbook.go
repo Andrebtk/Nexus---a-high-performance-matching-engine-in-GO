@@ -18,7 +18,8 @@ type OrderBook struct {
 	Bids map[uint64]*Limit
 	Asks map[uint64]*Limit
 
-	orders map[string]*Order
+	orders       map[string]*Order
+	ordersByDBID map[int]*Order // NEW: lookup for cancellation by Postgres order ID
 
 	bidPrices []uint64
 	askPrices []uint64
@@ -32,6 +33,7 @@ func NewOrderBook() *OrderBook {
 		Bids: make(map[uint64]*Limit),
 		Asks: make(map[uint64]*Limit),
 		orders: make(map[string]*Order),
+		ordersByDBID: make(map[int]*Order),
 
 		bidPrices: []uint64{},
 		askPrices: []uint64{},
@@ -113,6 +115,10 @@ func (ob *OrderBook) matchBuy(o *Order) []Fill {
 				limit.Pop()
 				o.Quantity -= matchedQty
 				tmp.Quantity = 0 // FIX: Set maker quantity to 0 when fully matched
+				delete(ob.orders, tmp.Id)
+				if tmp.DBOrderID > 0 {
+					delete(ob.ordersByDBID, tmp.DBOrderID)
+				}
 				fills = append(fills, Fill{
 					MakerOrder: tmp,
 					Quantity:   matchedQty,
@@ -158,6 +164,10 @@ func (ob *OrderBook) matchSell(o *Order) []Fill {
 				limit.Pop()
 				o.Quantity -= matchedQty
 				tmp.Quantity = 0 // FIX: Set maker quantity to 0 when fully matched
+				delete(ob.orders, tmp.Id)
+				if tmp.DBOrderID > 0 {
+					delete(ob.ordersByDBID, tmp.DBOrderID)
+				}
 				fills = append(fills, Fill{
 					MakerOrder: tmp,
 					Quantity:   matchedQty,
@@ -206,6 +216,9 @@ func (ob *OrderBook) placeMakerOrder(o *Order) {
 	limit.AddOrder(o)
 
 	ob.orders[o.Id] = o
+	if o.DBOrderID > 0 {
+		ob.ordersByDBID[o.DBOrderID] = o
+	}
 }
 
 
@@ -227,4 +240,38 @@ func (ob *OrderBook) ProcessOrder(o *Order) []Fill {
 	}
 
 	return fills
+}
+
+// CancelOrder removes a resting (unfilled) order from the book by its
+// Postgres order ID. Returns the removed Order, or nil if it wasn't
+// found resting in the book (e.g. already filled or never placed here).
+func (ob *OrderBook) CancelOrder(dbOrderID int) *Order {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
+	order, exists := ob.ordersByDBID[dbOrderID]
+	if !exists {
+		return nil
+	}
+
+	var targetMap map[uint64]*Limit
+	if order.IsBuy {
+		targetMap = ob.Bids
+	} else {
+		targetMap = ob.Asks
+	}
+
+	limit, ok := targetMap[order.Price]
+	if ok {
+		limit.CancelOrder(order)
+		if limit.doubleLinkedList.IsEmpty() {
+			delete(targetMap, order.Price)
+			ob.RemovePrice(order.Price, order.IsBuy)
+		}
+	}
+
+	delete(ob.orders, order.Id)
+	delete(ob.ordersByDBID, dbOrderID)
+
+	return order
 }
