@@ -144,15 +144,15 @@ function ProfilePage() {
             👤 Profile
           </h1>
 
-          {/* User Info Card */}
-          <div style={{
-            backgroundColor: theme.panel,
-            border: `1px solid ${theme.border}`,
-            borderRadius: '8px',
-            padding: '20px',
-            marginBottom: '20px'
-          }}>
-            <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+        {/* User Info Card */}
+        <div style={{
+          backgroundColor: theme.panel,
+          border: `1px solid ${theme.border}`,
+          borderRadius: '8px',
+          padding: '20px',
+          marginBottom: '20px'
+        }}>
+          <div style={{ display: 'flex', gap: '20px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', maxWidth: '800px', margin: '0 auto' }}>
               <div style={{
                 width: '64px',
                 height: '64px',

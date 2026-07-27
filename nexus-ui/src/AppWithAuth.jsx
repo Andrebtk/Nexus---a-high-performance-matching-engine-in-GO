@@ -21,7 +21,11 @@ const theme = {
 function AppContent() {
   const { user, logout, toggleAuthModal, setUser, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [activeSymbol, setActiveSymbol] = useState("AAPL");
+  // Initialize activeSymbol from localStorage or default to "AAPL"
+  const [activeSymbol, setActiveSymbol] = useState(() => {
+    const savedSymbol = localStorage.getItem('lastVisitedSymbol');
+    return savedSymbol || "AAPL";
+  });
   const [orderBook, setOrderBook] = useState({ bids: [], asks: [] });
   const [currentPrices, setCurrentPrices] = useState({ AAPL: 0, MSFT: 0, NVDA: 0, TSLA: 0 });
   const [histories, setHistories] = useState({ AAPL: [], MSFT: [], NVDA: [], TSLA: [] });
@@ -281,7 +285,10 @@ function AppContent() {
             {SYMBOLS.map(sym => (
               <button
                 key={sym}
-                onClick={() => setActiveSymbol(sym)}
+                onClick={() => {
+                  setActiveSymbol(sym);
+                  localStorage.setItem('lastVisitedSymbol', sym);
+                }}
                 style={{
                   padding: '8px 16px',
                   backgroundColor: activeSymbol === sym ? theme.accent : 'transparent',

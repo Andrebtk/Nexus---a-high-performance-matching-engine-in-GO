@@ -1,0 +1,145 @@
+digraph NexusSystemArchitecture {
+    // Global graph settings
+    rankdir=LR;
+    node [fontname="Arial", fontsize=12, shape=box, style="rounded,filled", fillcolor="#181a20", fontcolor="#EAECEF", color="#2b3139"];
+    edge [fontname="Arial", fontsize=10, color="#848E9C", arrowhead="open", arrowsize=0.7];
+    bgcolor="#0b0e11";
+
+    // Subgraphs for logical grouping
+    subgraph cluster_frontend {
+        label="Frontend (React)";
+        style="filled";
+        fillcolor="#1e2127";
+        fontcolor="#EAECEF";
+
+        // Frontend components
+        react_app [label="React Application\n(nexus-ui/src/AppWithAuth.jsx)" shape=component, fillcolor="#2962ff"];
+        auth_context [label="Authentication Context\n(AuthContext.jsx)" shape=component, fillcolor="#0ecb81"];
+        trading_ui [label="Trading Interface\n(Order Book, Charts, Forms)" shape=component, fillcolor="#2962ff"];
+        profile_page [label="User Profile Page\n(ProfilePage.jsx)" shape=component, fillcolor="#2962ff"];
+        auth_modal [label="Auth Modal\n(Auth.jsx)" shape=component, fillcolor="#0ecb81"];
+    }
+
+    subgraph cluster_backend {
+        label="Backend (Go)";
+        style="filled";
+        fillcolor="#1e2127";
+        fontcolor="#EAECEF";
+
+        // API Layer
+        api_server [label="API Server\n(cmd/api/main.go)" shape=component, fillcolor="#f6465d"];
+        auth_handlers [label="Auth Handlers\n(internal/api/auth_handlers.go)" shape=component, fillcolor="#f6465d"];
+        api_handlers [label="API Handlers\n(internal/api/handlers.go)" shape=component, fillcolor="#f6465d"];
+
+        // Core Engine
+        exchange [label="Exchange Engine\n(internal/engine/exchange.go)" shape=component, fillcolor="#0ecb81"];
+        orderbook [label="Order Book\n(internal/engine/orderbook.go)" shape=component, fillcolor="#0ecb81"];
+        matching_engine [label="Matching Engine\n(Order Processing)" shape=component, fillcolor="#0ecb81"];
+
+        // Services
+        user_service [label="User Service\n(In-Memory)" shape=component, fillcolor="#2962ff"];
+        postgres_user_service [label="PostgreSQL User Service\n(internal/services/postgres_user_service.go)" shape=component, fillcolor="#2962ff"];
+        order_service [label="Order Service\n(internal/services/order_service.go)" shape=component, fillcolor="#2962ff"];
+        transaction_service [label="Transaction Service\n(internal/services/transaction_service.go)" shape=component, fillcolor="#2962ff"];
+        profit_loss_service [label="Profit/Loss Service\n(internal/services/profit_loss_service.go)" shape=component, fillcolor="#2962ff"];
+        cost_basis_service [label="Cost Basis Service\n(internal/services/cost_basis_service.go)" shape=component, fillcolor="#2962ff"];
+
+        // External Services
+        price_oracle [label="Price Oracle\n(internal/oracle/oracle.go)" shape=component, fillcolor="#848E9C"];
+        market_maker_bots [label="Market Maker Bots\n(AAPL, MSFT, NVDA, TSLA)" shape=component, fillcolor="#848E9C"];
+
+        // Database
+        postgres_db [label="PostgreSQL Database\n(internal/database/database.go)" shape=cylinder, fillcolor="#4a5568"];
+    }
+
+    subgraph cluster_external {
+        label="External Services";
+        style="filled";
+        fillcolor="#1e2127";
+        fontcolor="#EAECEF";
+
+        alpha_vantage_api [label="Alpha Vantage API\n(Stock Price Data)" shape=cloud, fillcolor="#6c757d"];
+        users [label="Traders/Users" shape=person, fillcolor="#6c757d"];
+    }
+
+    // Connections within frontend
+    react_app -> auth_context [label="Uses auth state", color="#0ecb81"];
+    react_app -> trading_ui [label="Renders UI", color="#2962ff"];
+    react_app -> profile_page [label="Navigates to", color="#2962ff"];
+    react_app -> auth_modal [label="Shows modal", color="#0ecb81"];
+
+    // Frontend to Backend connections
+    react_app -> api_server [label="HTTP/REST API\n(GET/POST requests)" color="#f6465d", dir="both"];
+    trading_ui -> api_server [label="Fetch order book\n/book?symbol={symbol}" color="#2962ff"];
+    trading_ui -> api_server [label="Place orders\nPOST /order" color="#0ecb81"];
+    trading_ui -> api_server [label="Get price history" color="#848E9C"];
+    profile_page -> api_server [label="Get user data\nGET /auth/me" color="#2962ff"];
+    profile_page -> api_server [label="Get stock ownership\nGET /auth/stock-ownership" color="#2962ff"];
+    auth_modal -> auth_handlers [label="Login/Register\nPOST /auth/login\nPOST /auth/register" color="#0ecb81"];
+
+    // API Server connections
+    api_server -> auth_handlers [label="Routes auth requests", color="#f6465d"];
+    api_server -> api_handlers [label="Routes API requests", color="#f6465d"];
+    api_handlers -> exchange [label="Forwards orders", color="#0ecb81"];
+    api_handlers -> order_service [label="Order persistence", color="#2962ff"];
+    api_handlers -> user_service [label="User data", color="#2962ff"];
+    api_handlers -> postgres_user_service [label="User auth/data", color="#2962ff"];
+    api_handlers -> transaction_service [label="Transaction records", color="#2962ff"];
+    api_handlers -> profit_loss_service [label="P&L calculations", color="#2962ff"];
+    api_handlers -> cost_basis_service [label="Cost basis tracking", color="#2962ff"];
+
+    // Core Engine connections
+    exchange -> orderbook [label="Manages order books", color="#0ecb81"];
+    exchange -> matching_engine [label="Processes orders", color="#0ecb81"];
+    exchange -> user_service [label="User balances", color="#2962ff"];
+    exchange -> transaction_service [label="Records transactions", color="#2962ff"];
+    exchange -> profit_loss_service [label="Updates P&L", color="#2962ff"];
+    exchange -> order_service [label="Stores orders", color="#2962ff"];
+    exchange -> postgres_user_service [label="User persistence", color="#2962ff"];
+    exchange -> cost_basis_service [label="Cost basis updates", color="#2962ff"];
+
+    // Service connections
+    order_service -> postgres_db [label="CRUD operations", color="#2962ff"];
+    transaction_service -> postgres_db [label="CRUD operations", color="#2962ff"];
+    postgres_user_service -> postgres_db [label="CRUD operations", color="#2962ff"];
+    cost_basis_service -> postgres_db [label="CRUD operations", color="#2962ff"];
+
+    // External service connections
+    price_oracle -> alpha_vantage_api [label="Fetches real-time prices\n(HTTP API calls)" color="#848E9C"];
+    price_oracle -> exchange [label="Provides price data", color="#848E9C"];
+    market_maker_bots -> exchange [label="Generates market orders\n(AAPL, MSFT, NVDA, TSLA)" color="#848E9C"];
+
+    // User connections
+    users -> react_app [label="Uses web interface", color="#6c757d"];
+    users -> api_server [label="Direct API access", color="#6c757d", style="dashed"];
+
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style="filled";
+        fillcolor="#0b0e11";
+        fontcolor="#EAECEF";
+        rank="sink";
+
+        legend1 [label="Frontend Components" shape=plaintext];
+        legend2 [label="Backend API Layer" shape=plaintext];
+        legend3 [label="Core Engine" shape=plaintext];
+        legend4 [label="Services" shape=plaintext];
+        legend5 [label="Database" shape=plaintext];
+        legend6 [label="External Services" shape=plaintext];
+
+        legend1 -> legend2 [style=invis];
+        legend2 -> legend3 [style=invis];
+        legend3 -> legend4 [style=invis];
+        legend4 -> legend5 [style=invis];
+        legend5 -> legend6 [style=invis];
+    }
+
+    // Color coding for different component types
+    {rank=same; react_app; auth_context; trading_ui; profile_page; auth_modal}
+    {rank=same; api_server; auth_handlers; api_handlers}
+    {rank=same; exchange; orderbook; matching_engine}
+    {rank=same; user_service; postgres_user_service; order_service; transaction_service; profit_loss_service; cost_basis_service}
+    {rank=same; postgres_db}
+    {rank=same; price_oracle; market_maker_bots; alpha_vantage_api; users}
+}

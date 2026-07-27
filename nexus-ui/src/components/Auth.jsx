@@ -2,7 +2,7 @@ import { useState } from 'react';
 
 const API_URL = "http://localhost:8080";
 
-export function Auth({ onLoginSuccess }) {
+export function Auth({ onLoginSuccess, onClose = () => {} }) {
   const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
     username: '',
@@ -56,27 +56,55 @@ export function Auth({ onLoginSuccess }) {
   };
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 1000,
-      backdropFilter: 'blur(5px)'
-    }}>
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 9999,
+        backdropFilter: 'blur(5px)'
+      }}>
       <div style={{
         backgroundColor: '#181a20',
         borderRadius: '12px',
-        padding: '30px',
+        padding: '40px',
         width: '400px',
         maxWidth: '90%',
-        border: '1px solid #2b3139'
+        border: '1px solid #2b3139',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+        position: 'relative'
       }}>
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: '15px',
+            right: '15px',
+            background: 'none',
+            border: 'none',
+            color: '#848E9C',
+            cursor: 'pointer',
+            fontSize: '24px',
+            fontWeight: 'bold',
+            width: '30px',
+            height: '30px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '50%',
+            transition: 'all 0.2s'
+          }}
+          onMouseOver={(e) => e.target.style.backgroundColor = '#0b0e11'}
+          onMouseOut={(e) => e.target.style.backgroundColor = 'transparent'}
+        >
+          ×
+        </button>
+
         <h2 style={{
           color: '#EAECEF',
           textAlign: 'center',

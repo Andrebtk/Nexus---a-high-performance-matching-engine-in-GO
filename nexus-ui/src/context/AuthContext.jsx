@@ -70,23 +70,23 @@ export function AuthProvider({ children }) {
     setShowAuthModal(!showAuthModal);
   };
 
-  return (
-    <AuthContext.Provider value={{
-      user,
-      loading,
-      showAuthModal,
-      isAuthenticated,
-      setUser,
-      login,
-      logout,
-      toggleAuthModal
-    }}>
-      {children}
-      {showAuthModal && (
-        <Auth onLoginSuccess={login} />
-      )}
-    </AuthContext.Provider>
-  );
+      return (
+        <AuthContext.Provider value={{
+          user,
+          loading,
+          showAuthModal,
+          isAuthenticated,
+          setUser,
+          login,
+          logout,
+          toggleAuthModal
+        }}>
+          {children}
+          {showAuthModal && (
+            <Auth onLoginSuccess={login} onClose={toggleAuthModal} />
+          )}
+        </AuthContext.Provider>
+      );
 }
 
 export function useAuth() {
