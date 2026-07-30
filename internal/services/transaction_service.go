@@ -59,7 +59,10 @@ func (ts *TransactionService) RecordTransaction(userID, orderID, transactionType
 			VALUES ($1, $2, $3, $4, $5)`,
 			userID, orderID, amount, transactionType, transaction.Timestamp)
 		if err != nil {
-			log.Printf("Warning: Failed to persist transaction to database: %v", err)
+			// Don't log warnings for system_bot transactions (expected behavior)
+			if userID != "system_bot" {
+				log.Printf("Warning: Failed to persist transaction to database: %v", err)
+			}
 		}
 	}
 

@@ -43,8 +43,11 @@ func (e *Exchange) RouteOrder(o *Order) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	log.Printf("DEBUG: [EXCHANGE] Starting processing for order %s, symbol=%s, dbOrderID=%d",
-		o.Id, o.Symbol, o.DBOrderID)
+	// Only log for non-system orders to reduce noise
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: [EXCHANGE] Starting processing for order %s, symbol=%s, dbOrderID=%d",
+			o.Id, o.Symbol, o.DBOrderID)
+	}
 
 	// Get or create the order book for the symbol
 	book, ok := e.books[o.Symbol]
@@ -82,8 +85,11 @@ func (e *Exchange) RouteOrder(o *Order) {
 	// Store the original quantity before processing
 	originalQuantity := o.Quantity
 
-	log.Printf("DEBUG: Processing order %s: symbol=%s, isBuy=%t, quantity=%d, price=%d, user=%s, dbOrderID=%d",
-		o.Id, o.Symbol, o.IsBuy, o.Quantity, o.Price, o.UserID, o.DBOrderID)
+	// Only log detailed processing for non-system orders
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: Processing order %s: symbol=%s, isBuy=%t, quantity=%d, price=%d, user=%s, dbOrderID=%d",
+			o.Id, o.Symbol, o.IsBuy, o.Quantity, o.Price, o.UserID, o.DBOrderID)
+	}
 
 	fills := book.ProcessOrder(o)
 
@@ -92,14 +98,17 @@ func (e *Exchange) RouteOrder(o *Order) {
 		e.settleMakerFill(fill)
 	}
 
-	log.Printf("DEBUG: After processing order %s: remaining quantity=%d, matched quantity=%d",
-		o.Id, o.Quantity, originalQuantity - o.Quantity)
+	// Only log post-processing details for non-system orders to reduce noise
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: After processing order %s: remaining quantity=%d, matched quantity=%d",
+			o.Id, o.Quantity, originalQuantity - o.Quantity)
 
-	// The order has already been placed in the order book by ProcessOrder if there was remaining quantity
-	if o.Quantity > 0 {
-		log.Printf("DEBUG: Order %s placed in order book with remaining quantity %d", o.Id, o.Quantity)
-	} else {
-		log.Printf("DEBUG: Order %s was fully matched, not adding to order book", o.Id)
+		// The order has already been placed in the order book by ProcessOrder if there was remaining quantity
+		if o.Quantity > 0 {
+			log.Printf("DEBUG: Order %s placed in order book with remaining quantity %d", o.Id, o.Quantity)
+		} else {
+			log.Printf("DEBUG: Order %s was fully matched, not adding to order book", o.Id)
+		}
 	}
 
     // Record transaction
@@ -153,13 +162,19 @@ func (e *Exchange) RouteOrder(o *Order) {
 	}
 
 	// Update order status in database if this is a PostgreSQL user
-	log.Printf("DEBUG: [ORDER STATUS] Checking order status update for order %s, DBOrderID=%d, Quantity=%d, orderService=%v",
-		o.Id, o.DBOrderID, o.Quantity, e.orderService != nil)
+	// Only log order status debug for non-system orders
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: [ORDER STATUS] Checking order status update for order %s, DBOrderID=%d, Quantity=%d, orderService=%v",
+			o.Id, o.DBOrderID, o.Quantity, e.orderService != nil)
+	}
 
 	if e.orderService != nil {
 		// Debug: Log the order details to help diagnose completion issues
-		log.Printf("DEBUG: [ORDER COMPLETION CHECK] Order %s: Symbol=%s, UserID=%s, DBOrderID=%d, Quantity=%d, IsBuy=%t, OriginalQuantity=%d",
-			o.Id, o.Symbol, o.UserID, o.DBOrderID, o.Quantity, o.IsBuy, originalQuantity)
+		// Only log completion check debug for non-system orders
+		if o.DBOrderID > 0 || o.UserID != "system_bot" {
+			log.Printf("DEBUG: [ORDER COMPLETION CHECK] Order %s: Symbol=%s, UserID=%s, DBOrderID=%d, Quantity=%d, IsBuy=%t, OriginalQuantity=%d",
+				o.Id, o.Symbol, o.UserID, o.DBOrderID, o.Quantity, o.IsBuy, originalQuantity)
+		}
 		// Check if this order was fully matched (quantity is 0)
 		if o.Quantity == 0 {
 			log.Printf("INFO: [ORDER COMPLETION] Order %s was fully matched (quantity=%d), initiating completion process", o.Id, o.Quantity)

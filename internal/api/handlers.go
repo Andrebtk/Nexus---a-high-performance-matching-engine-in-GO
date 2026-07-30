@@ -1,4 +1,4 @@
-package api 
+package api
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"Nexus/internal/services"
 	"sort"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 	"log"
@@ -622,8 +623,13 @@ func GetStockOwnershipHandler(postgresUserService *services.PostgresUserService,
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		// Get allowed origin from environment variable, default to wildcard for local development
+		allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+		if allowedOrigin == "" {
+			// Default to wildcard for local development
+			allowedOrigin = "*"
+		}
+		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 

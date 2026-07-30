@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -10,7 +11,20 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtSecret = []byte("NexusPassword")
+var jwtSecret []byte
+
+func init() {
+	// Initialize with empty value, will be set by SetJWTSecret
+	jwtSecret = []byte("")
+}
+
+// SetJWTSecret sets the JWT secret after environment variables are loaded
+func SetJWTSecret(secret string) {
+	jwtSecret = []byte(secret)
+	if len(jwtSecret) == 0 {
+		log.Fatal("JWT_SECRET environment variable is not set")
+	}
+}
 
 type AuthClaims struct {
 	UserID int `json:"user_id"`

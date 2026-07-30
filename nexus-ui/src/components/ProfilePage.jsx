@@ -38,8 +38,6 @@ function ProfilePage() {
         setLoading(true);
         setError(null);
 
-        console.log(`DEBUG: Fetching orders for user ${user.id}`);
-
         // Get JWT token from localStorage
         const token = localStorage.getItem('token');
 
@@ -49,10 +47,8 @@ function ProfilePage() {
             'Authorization': `Bearer ${token}`
           }
         });
-        console.log(`DEBUG: Active orders response status: ${activeResponse.status}`);
         if (activeResponse.ok) {
           const activeData = await activeResponse.json();
-          console.log(`DEBUG: Received ${activeData.active_orders?.length || 0} active orders`);
           setActiveOrders(activeData.active_orders || []);
         }
 
@@ -62,10 +58,8 @@ function ProfilePage() {
             'Authorization': `Bearer ${token}`
           }
         });
-        console.log(`DEBUG: History orders response status: ${historyResponse.status}`);
         if (historyResponse.ok) {
           const historyData = await historyResponse.json();
-          console.log(`DEBUG: Received ${historyData.order_history?.length || 0} historical orders`);
           setOrderHistory(historyData.order_history || []);
         }
 
@@ -75,19 +69,15 @@ function ProfilePage() {
             'Authorization': `Bearer ${token}`
           }
         });
-        console.log(`DEBUG: Stock ownership response status: ${stockResponse.status}`);
         if (stockResponse.ok) {
           const stockData = await stockResponse.json();
-          console.log(`DEBUG: Received stock ownership data`, stockData);
           setStockOwnership(stockData.stock_ownership || {});
         }
 
         // Fetch current stock prices
         const pricesResponse = await fetch(`${API_URL}/current-prices`);
-        console.log(`DEBUG: Current prices response status: ${pricesResponse.status}`);
         if (pricesResponse.ok) {
           const pricesData = await pricesResponse.json();
-          console.log(`DEBUG: Received current prices data`, pricesData);
           setCurrentPrices(pricesData.current_prices || {});
         }
 
