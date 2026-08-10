@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-const API_URL = "http://localhost:8080";
+const API_URL = "https://nexus-backend-bncw.onrender.com";
 
 // "TradingView / Binance" color palette
 const theme = {
