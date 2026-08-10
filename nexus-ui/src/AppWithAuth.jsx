@@ -5,7 +5,7 @@ import { useAuth } from './context/AuthContext'
 
 const SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA"];
 
-const API_URL = "http://localhost:8080";
+const API_URL = "https://nexus-backend-bncw.onrender.com";
 // "TradingView / Binance" color palette
 const theme = {
   bg: '#0b0e11',

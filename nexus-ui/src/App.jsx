@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { Auth } from './components/Auth'
 
 const SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA"];
-const API_URL = "http://localhost:8080";
+const API_URL = "https://nexus-backend-bncw.onrender.com";
 // For demo purposes, we'll use a default user ID
 const DEFAULT_USER_ID = "system_bot";
 
