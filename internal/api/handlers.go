@@ -685,5 +685,11 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 	}
     */
 
-	router.Run("localhost:8080")
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080" // Port par défaut pour le développement local
+    }
+    
+    // Remplacer router.Run("localhost:8080") par :
+    router.Run("0.0.0.0:" + port)
 }
