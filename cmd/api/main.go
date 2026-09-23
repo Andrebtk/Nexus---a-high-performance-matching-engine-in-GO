@@ -254,7 +254,7 @@ func main() {
 	}
 
 	fmt.Println("Starting Price Oracle...")
-	oracleKey := os.Getenv("TWELVE_DATA_API_KEY")
+	oracleKey := os.Getenv("TWELVEDATA_API_KEY")
 	if oracleKey == "" {
 		// Fallback for local development if not set in environment
 		oracleKey = "081f90e89a2447a48c79296b458cfd98"
