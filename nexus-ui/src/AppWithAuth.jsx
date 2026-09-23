@@ -5,7 +5,7 @@ import { useAuth } from './context/AuthContext'
 
 const SYMBOLS = ["AAPL", "MSFT", "NVDA", "TSLA"];
 
-const API_URL = "http://localhost:8080";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
 // "TradingView / Binance" color palette
 const theme = {
   bg: '#0b0e11',
@@ -34,6 +34,7 @@ function AppContent() {
   const [isBuy, setIsBuy] = useState(true);
   const [profitLoss, setProfitLoss] = useState({ profit: 0, loss: 0, net: 0, loading: true, error: null });
   const [stockOwnership, setStockOwnership] = useState({});
+  const [isServerStarting, setIsServerStarting] = useState(true);
 
   const currentPrice = currentPrices[activeSymbol] || 0;
   const priceHistory = histories[activeSymbol] || [];
@@ -106,6 +107,10 @@ function AppContent() {
                 [activeSymbol]: [...symbolHistory, { time: timeString, price: newPrice }].slice(-30)
               };
             });
+          }
+          
+          if (isServerStarting) {
+            setIsServerStarting(false);
           }
         }
       } catch (err) {
@@ -215,6 +220,43 @@ function AppContent() {
       alert("Failed to place order. Please try again.");
     }
   };
+
+  if (isServerStarting) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        backgroundColor: theme.bg,
+        color: theme.textMain,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+      }}>
+        <div style={{
+          width: '50px',
+          height: '50px',
+          border: `4px solid ${theme.border}`,
+          borderTop: `4px solid ${theme.accent}`,
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          marginBottom: '20px'
+        }}></div>
+        <style>
+          {`
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          `}
+        </style>
+        <h2 style={{ margin: '0 0 10px 0' }}>Nexus Exchange is waking up...</h2>
+        <p style={{ color: theme.textMuted, margin: 0, maxWidth: '400px', textAlign: 'center', lineHeight: '1.5' }}>
+          Please wait while the server gathers market data and completes its cold start sequence.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: theme.bg, color: theme.textMain, padding: '20px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' }}>

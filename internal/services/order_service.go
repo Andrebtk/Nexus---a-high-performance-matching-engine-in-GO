@@ -55,6 +55,101 @@ func (s *OrderService) CreateOrder(userID int, symbol string, orderType string, 
 	return &order, nil
 }
 
+// PlaceBuyOrderAtomically atomically checks balance, deducts it, and creates the order
+func (s *OrderService) PlaceBuyOrderAtomically(userID int, symbol string, quantity int, price float64) (*Order, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Lock user row and get balance
+	var balance float64
+	err = tx.QueryRow("SELECT balance FROM users WHERE id = $1 FOR UPDATE", userID).Scan(&balance)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user balance: %v", err)
+	}
+
+	requiredBalance := float64(quantity) * price
+	if balance < requiredBalance {
+		return nil, fmt.Errorf("insufficient balance. Required: $%.2f, Available: $%.2f", requiredBalance, balance)
+	}
+
+	// 2. Update balance
+	_, err = tx.Exec("UPDATE users SET balance = balance - $1 WHERE id = $2", requiredBalance, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deduct balance: %v", err)
+	}
+
+	// 3. Insert order
+	query := `
+	INSERT INTO orders (user_id, symbol, order_type, quantity, price, status)
+	VALUES ($1, $2, $3, $4, $5, $6)
+	RETURNING id, user_id, symbol, order_type, quantity, price, status, created_at, updated_at`
+	row := tx.QueryRow(query, userID, symbol, "BUY", quantity, price, "active")
+
+	var order Order
+	err = row.Scan(&order.ID, &order.UserID, &order.Symbol, &order.OrderType, &order.Quantity, &order.Price, &order.Status, &order.CreatedAt, &order.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert order: %v", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+	return &order, nil
+}
+
+// PlaceSellOrderAtomically atomically checks stock ownership and creates the order
+func (s *OrderService) PlaceSellOrderAtomically(userID int, symbol string, quantity int, price float64) (*Order, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Lock user row to serialize concurrent sell checks for this user
+	var dummyID int
+	err = tx.QueryRow("SELECT id FROM users WHERE id = $1 FOR UPDATE", userID).Scan(&dummyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock user record: %v", err)
+	}
+
+	// 2. Calculate owned quantity (completed BUYs - completed SELLs)
+	var totalBought, totalSold int
+	tx.QueryRow("SELECT COALESCE(SUM(quantity), 0) FROM orders WHERE user_id = $1 AND symbol = $2 AND order_type = 'BUY' AND status = 'completed'", userID, symbol).Scan(&totalBought)
+	tx.QueryRow("SELECT COALESCE(SUM(quantity), 0) FROM orders WHERE user_id = $1 AND symbol = $2 AND order_type = 'SELL' AND status = 'completed'", userID, symbol).Scan(&totalSold)
+	ownedQuantity := totalBought - totalSold
+
+	// 3. Calculate reserved quantity (active SELLs)
+	var reservedQuantity int
+	tx.QueryRow("SELECT COALESCE(SUM(quantity), 0) FROM orders WHERE user_id = $1 AND symbol = $2 AND order_type = 'SELL' AND status = 'active'", userID, symbol).Scan(&reservedQuantity)
+	
+	availableQuantity := ownedQuantity - reservedQuantity
+
+	if quantity > availableQuantity {
+		return nil, fmt.Errorf("insufficient stock ownership. Trying to sell %d shares of %s, but only %d available (owned: %d, already reserved: %d)", quantity, symbol, availableQuantity, ownedQuantity, reservedQuantity)
+	}
+
+	// 4. Insert order
+	query := `
+	INSERT INTO orders (user_id, symbol, order_type, quantity, price, status)
+	VALUES ($1, $2, $3, $4, $5, $6)
+	RETURNING id, user_id, symbol, order_type, quantity, price, status, created_at, updated_at`
+	row := tx.QueryRow(query, userID, symbol, "SELL", quantity, price, "active")
+
+	var order Order
+	err = row.Scan(&order.ID, &order.UserID, &order.Symbol, &order.OrderType, &order.Quantity, &order.Price, &order.Status, &order.CreatedAt, &order.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert order: %v", err)
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %v", err)
+	}
+	return &order, nil
+}
+
 func (s *OrderService) GetActiveOrders(userID int) ([]Order, error) {
 	query := `
 	SELECT id, user_id, symbol, order_type, quantity, price, status, created_at, updated_at
@@ -65,6 +160,44 @@ func (s *OrderService) GetActiveOrders(userID int) ([]Order, error) {
 	rows, err := s.db.Query(query, userID)
 	if err != nil {
 		log.Printf("Failed to get active orders: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []Order
+	for rows.Next() {
+		var order Order
+		err := rows.Scan(
+			&order.ID,
+			&order.UserID,
+			&order.Symbol,
+			&order.OrderType,
+			&order.Quantity,
+			&order.Price,
+			&order.Status,
+			&order.CreatedAt,
+			&order.UpdatedAt,
+		)
+		if err != nil {
+			log.Printf("Failed to scan order: %v", err)
+			continue
+		}
+		orders = append(orders, order)
+	}
+
+	return orders, nil
+}
+
+func (s *OrderService) GetAllActiveOrders() ([]Order, error) {
+	query := `
+	SELECT id, user_id, symbol, order_type, quantity, price, status, created_at, updated_at
+	FROM orders
+	WHERE status = 'active'
+	ORDER BY created_at ASC`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		log.Printf("Failed to get all active orders: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -141,6 +274,21 @@ func (s *OrderService) UpdateOrderStatus(orderID int, status string) error {
 	_, err := s.db.Exec(query, status, orderID)
 	if err != nil {
 		log.Printf("Failed to update order status: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (s *OrderService) UpdateOrderQuantity(orderID int, newQuantity int) error {
+	query := `
+	UPDATE orders
+	SET quantity = $1, updated_at = CURRENT_TIMESTAMP
+	WHERE id = $2`
+
+	_, err := s.db.Exec(query, newQuantity, orderID)
+	if err != nil {
+		log.Printf("Failed to update order %d quantity to %d: %v", orderID, newQuantity, err)
 		return err
 	}
 

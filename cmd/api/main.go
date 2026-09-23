@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"time"
 	"math/rand"
 
@@ -152,8 +154,41 @@ func main() {
 	ex := engine.NewExchange(userService, transactionService, profitLossService, orderService, postgresUserService, costBasisService)
 	//populate(ex)
 
+	// Load active orders from DB to restore orderbook state
+	activeOrders, err := orderService.GetAllActiveOrders()
+	if err == nil {
+		log.Printf("INFO: Restoring %d active orders from database into the matching engine", len(activeOrders))
+		for _, dbOrder := range activeOrders {
+			// Parse the timestamp
+			t, err := time.Parse(time.RFC3339, dbOrder.CreatedAt)
+			if err != nil {
+				t = time.Now()
+			}
+			
+			// Convert DB order to Engine order
+			engineOrder := &engine.Order{
+				Id:        fmt.Sprintf("order_restored_%d", dbOrder.ID),
+				Symbol:    dbOrder.Symbol,
+				IsBuy:     dbOrder.OrderType == "BUY",
+				Quantity:  dbOrder.Quantity,
+				Price:     uint64(dbOrder.Price),
+				TimeStamp: t,
+				UserID:    strconv.Itoa(dbOrder.UserID),
+				DBOrderID: dbOrder.ID,
+			}
+			ex.RestoreOrder(engineOrder)
+		}
+	} else {
+		log.Printf("ERROR: Failed to load active orders from DB: %v", err)
+	}
+
 	fmt.Println("Starting Price Oracle...")
-	po := oracle.NewPriceOracle("081f90e89a2447a48c79296b458cfd98")
+	apiKey := os.Getenv("TWELVE_DATA_API_KEY")
+	if apiKey == "" {
+		apiKey = "081f90e89a2447a48c79296b458cfd98" // Fallback to the old hardcoded key for local dev if needed
+		log.Println("Warning: TWELVE_DATA_API_KEY environment variable not set. Using fallback key.")
+	}
+	po := oracle.NewPriceOracle(apiKey)
 	symbols := []string{"AAPL", "MSFT", "NVDA", "TSLA"}
 
 	go po.RunPriceUpdater(symbols)

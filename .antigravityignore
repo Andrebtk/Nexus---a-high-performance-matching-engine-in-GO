@@ -1,0 +1,32 @@
+# Go
+**/bin/
+**/vendor/
+*.test
+*.out
+coverage.txt
+
+# Node / Vite frontend
+nexus-ui/node_modules/
+nexus-ui/dist/
+nexus-ui/build/
+*.lock
+package-lock.json
+pnpm-lock.yaml
+bun.lockb
+
+# Generated architecture artifacts — binary/large text, regenerate via skill instead of indexing
+nexus_system_architecture.png
+nexus_system_architecture.svg
+current_design.png
+system_architecture.dot
+
+# Secrets — NEVER index
+.env
+.env.local
+.env.production
+*.pem
+secrets.json
+
+# Logs
+*.log
+logs/

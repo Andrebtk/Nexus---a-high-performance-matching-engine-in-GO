@@ -6,6 +6,7 @@ import (
 
 	"Nexus/internal/models"
 	"Nexus/internal/services"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -177,4 +178,3 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 		}
 	}
 }
-

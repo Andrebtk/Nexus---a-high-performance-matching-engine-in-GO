@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 	"log"
+	"os"
 	"github.com/gin-gonic/gin"
 )
 
@@ -98,15 +99,18 @@ func GetProfitLossHandler(pls *services.ProfitLossService, postgresUserService *
         var profit, loss float64
         var err error
 
-        // If userID is numeric, it's a PostgreSQL user
-        if _, err := strconv.Atoi(userID); err == nil {
-            // For PostgreSQL users, get profit/loss directly from database
-            // (now properly tracked via cost basis system)
-            userIDInt, _ := strconv.Atoi(userID)
-            user, err := postgresUserService.GetUserByID(userIDInt)
-            if err == nil {
+        if userID != "system_bot" {
+            userIDInt, err := strconv.Atoi(userID)
+            if err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+                return
+            }
+            user, dbErr := postgresUserService.GetUserByID(userIDInt)
+            if dbErr == nil {
                 profit = user.Profit
                 loss = user.Loss
+            } else {
+                err = dbErr
             }
         } else {
             // Get profit/loss from in-memory system (for system_bot)
@@ -254,118 +258,45 @@ func PlaceOrderHandler(ex *engine.Exchange, postgresUserService *services.Postgr
             if exists {
                 userID = strconv.Itoa(userIDInterface.(int))
             } else {
-                // Fallback to system_bot if no user specified
-                userID = "system_bot"
+                c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID is required"})
+                return
             }
         }
-
-        // Check if order would be rejected due to insufficient balance BEFORE any database operations
-        if order.IsBuy {
-            // Convert userID to integer for PostgreSQL users
-            var userIDInt int
-            var err error
-            if userIDInt, err = strconv.Atoi(userID); err == nil && userIDInt > 0 {
-                user, err := postgresUserService.GetUserByID(userIDInt)
-                if err == nil {
-                    requiredBalance := float64(order.Quantity) * order.Price
-                    if user.Balance < requiredBalance {
-                        c.JSON(http.StatusBadRequest, gin.H{
-                            "error": fmt.Sprintf("Insufficient balance. Required: $%.2f, Available: $%.2f", requiredBalance, user.Balance),
-                        })
-                        return
-                    }
-                }
-            }
-        } else {
-            // For SELL orders, check if user has enough stock to sell
-            var userIDInt int
-            var err error
-            if userIDInt, err = strconv.Atoi(userID); err == nil && userIDInt > 0 {
-                // Get the user's current stock ownership for this symbol
-                ownedQuantity, err := postgresUserService.GetStockQuantity(userIDInt, order.Symbol)
-                if err != nil {
-                    log.Printf("Warning: Failed to get stock ownership for user %d: %v", userIDInt, err)
-                    // If we can't get stock ownership, assume they don't own any
-                    ownedQuantity = 0
-                }
-
-                // Get the quantity already reserved in active sell orders
-                reservedQuantity, err := orderService.GetActiveSellQuantity(userIDInt, order.Symbol)
-                if err != nil {
-                    log.Printf("Warning: Failed to get reserved sell quantity for user %d: %v", userIDInt, err)
-                    reservedQuantity = 0
-                }
-
-                // Calculate available quantity
-                availableQuantity := ownedQuantity - reservedQuantity
-
-                // Check if user is trying to sell more than they have available
-                if order.Quantity > availableQuantity {
-                    c.JSON(http.StatusBadRequest, gin.H{
-                        "error": fmt.Sprintf("Insufficient stock ownership. Trying to sell %d shares of %s, but only %d available (owned: %d, already reserved in pending sell orders: %d)", order.Quantity, order.Symbol, availableQuantity, ownedQuantity, reservedQuantity),
-                    })
-                    return
-                }
-            }
-            // For system_bot, we don't check stock ownership (infinite stocks)
+        
+        userIDInt, err := strconv.Atoi(userID)
+        if err != nil || userIDInt <= 0 {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid numeric user ID"})
+            return
         }
 
-        // Create order record in database for all users (including system_bot)
-        var dbOrderID int
-        var orderCreationFailed = false
-        orderType := "BUY"
-        if !order.IsBuy {
-            orderType = "SELL"
-        }
+		var dbOrder *services.Order
+		var dbOrderID int
+		var orderCreationFailed = false
 
-        // Try to create order record in database for numeric user IDs (PostgreSQL users)
-        if numericUserID, err := strconv.Atoi(userID); err == nil {
-            // For buy orders, deduct from balance immediately (they pay when placing the order)
-            // For sell orders, don't add to balance yet (they get paid when the order is matched)
-            if order.IsBuy {
-                // Calculate the amount to deduct from balance for buy orders
-                amount := float64(order.Quantity) * order.Price * -1
 
-                // Create order record in database
-                dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
-                if err != nil {
-                    log.Printf("ERROR: Failed to create order record for user %d: %v", numericUserID, err)
-                    orderCreationFailed = true
-                } else {
-                    dbOrderID = dbOrder.ID
-                    log.Printf("INFO: Created order %d in database for user %d", dbOrderID, numericUserID)
+		if order.IsBuy {
+			// Atomically check balance, deduct, and create order
+			var err error
+			dbOrder, err = orderService.PlaceBuyOrderAtomically(userIDInt, order.Symbol, order.Quantity, order.Price)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			dbOrderID = dbOrder.ID
+			log.Printf("INFO: Created order %d in database for user %d", dbOrderID, userIDInt)
+		} else {
+			// Atomically check stock ownership and create order
+			var err error
+			dbOrder, err = orderService.PlaceSellOrderAtomically(userIDInt, order.Symbol, order.Quantity, order.Price)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			dbOrderID = dbOrder.ID
+			log.Printf("INFO: Created order %d in database for user %d", dbOrderID, userIDInt)
+		}
 
-                    // Update the user's balance in PostgreSQL for buy orders only
-                    err = postgresUserService.UpdateUserBalance(numericUserID, amount)
-                    if err != nil {
-                        log.Printf("Warning: Failed to update balance for user %d: %v", numericUserID, err)
-                        // Don't fail the whole order if balance update fails
-                    }
-                }
-            } else {
-                // For sell orders, create the order record but don't update balance yet
-                // The balance will be updated when the order is matched in the exchange
-                dbOrder, err := orderService.CreateOrder(numericUserID, order.Symbol, orderType, order.Quantity, order.Price, "active")
-                if err != nil {
-                    log.Printf("ERROR: Failed to create order record for user %d: %v", numericUserID, err)
-                    orderCreationFailed = true
-                } else {
-                    dbOrderID = dbOrder.ID
-                    log.Printf("INFO: Created order %d in database for user %d (sell order - balance update deferred)", dbOrderID, numericUserID)
-                }
-            }
-        } else {
-            // For non-numeric user IDs (like system_bot), create a special order record
-            // We'll use user_id = 0 for system_bot orders to track them in the database
-            dbOrder, err := orderService.CreateOrder(0, order.Symbol, orderType, order.Quantity, order.Price, "active")
-            if err != nil {
-                log.Printf("ERROR: Failed to create order record for system_bot: %v", err)
-                orderCreationFailed = true
-            } else {
-                dbOrderID = dbOrder.ID
-                log.Printf("INFO: Created order %d in database for system_bot", dbOrderID)
-            }
-        }
+		// The code below handles order routing to the engine after atomic creation
 
         // If order creation failed, don't proceed with the order
         if orderCreationFailed {
@@ -479,7 +410,8 @@ func CancelOrderHandler(ex *engine.Exchange, orderService *services.OrderService
 
 		// Remove the resting order from the live matching engine first.
 		// If this fails, the order was likely just matched — don't touch the DB.
-		if _, err := ex.CancelOrder(order.Symbol, orderIDInt); err != nil {
+		liveOrder, err := ex.CancelOrder(order.Symbol, orderIDInt)
+		if err != nil {
 			log.Printf("WARNING: Failed to remove order %d from live order book: %v", orderIDInt, err)
 			c.JSON(http.StatusConflict, gin.H{
 				"error": "Order could not be cancelled — it may have just been matched. Please refresh.",
@@ -495,8 +427,10 @@ func CancelOrderHandler(ex *engine.Exchange, orderService *services.OrderService
 		// BUY orders had funds deducted upfront when placed — refund them.
 		// SELL orders never had balance credited or stock deducted upfront
 		// (that only happens on fill), so there's nothing to refund there.
-		if order.OrderType == "BUY" {
-			refundAmount := float64(order.Quantity) * order.Price
+		if order.OrderType == "BUY" && liveOrder != nil {
+			// Refund based on the REMAINING quantity in the live order book,
+			// because partial fills have already been settled and refunded!
+			refundAmount := float64(liveOrder.Quantity) * order.Price
 			if err := postgresUserService.UpdateUserBalance(authUserID, refundAmount); err != nil {
 				log.Printf("WARNING: Failed to refund balance for cancelled order %d: %v", orderIDInt, err)
 			} else {
@@ -679,5 +613,9 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 	}
     */
 
-	router.Run("localhost:8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	router.Run(":" + port)
 }
