@@ -4,17 +4,19 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"time"
-	"math/rand"
 
-	"github.com/joho/godotenv"
 	"Nexus/internal/api"
 	"Nexus/internal/database"
 	"Nexus/internal/engine"
 	"Nexus/internal/oracle"
 	"Nexus/internal/services"
+
+	"github.com/joho/godotenv"
 )
 
 func testOrderBook() {
@@ -233,7 +235,7 @@ func main() {
 			if err != nil {
 				t = time.Now()
 			}
-			
+
 			// Convert DB order to Engine order
 			engineOrder := &engine.Order{
 				Id:        fmt.Sprintf("order_restored_%d", dbOrder.ID),
@@ -252,7 +254,12 @@ func main() {
 	}
 
 	fmt.Println("Starting Price Oracle...")
-	po := oracle.NewPriceOracle("081f90e89a2447a48c79296b458cfd98")
+	oracleKey := os.Getenv("TWELVE_DATA_API_KEY")
+	if oracleKey == "" {
+		// Fallback for local development if not set in environment
+		oracleKey = "081f90e89a2447a48c79296b458cfd98"
+	}
+	po := oracle.NewPriceOracle(oracleKey)
 	symbols := []string{"AAPL", "MSFT", "NVDA", "TSLA"}
 
 	go po.RunPriceUpdater(symbols)
@@ -264,7 +271,11 @@ func main() {
 	go MarketMakerBot(ex, "TSLA", 200, po)
 
 	// Set JWT secret after environment variables are loaded
-	api.SetJWTSecret(os.Getenv("JWT_SECRET"))
-
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Println("WARNING: JWT_SECRET environment variable is not set. Using default secret for local development.")
+		secret = "local_development_secret_key_change_me_in_production"
+	}
+	api.SetJWTSecret(secret)
 	api.StartAPI(ex, profitLossService, postgresUserService)
 }
