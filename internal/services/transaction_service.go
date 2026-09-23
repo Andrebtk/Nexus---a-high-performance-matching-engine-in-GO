@@ -55,12 +55,28 @@ func (ts *TransactionService) RecordTransaction(userID, orderID, transactionType
 
 	// If we have a database connection, also persist to database
 	if ts.db != nil {
-		if numericUserID, err := strconv.Atoi(userID); err == nil {
+if numericUserID, err := strconv.Atoi(userID); err == nil {
 			_, err := ts.db.Exec(`
 				INSERT INTO transactions (user_id, order_id, amount, type, timestamp)
 				VALUES ($1, $2, $3, $4, $5)`,
 				numericUserID, orderID, amount, transactionType, transaction.Timestamp)
 			if err != nil {
+				if userID != "system_bot" {
+					log.Printf("Warning: Failed to persist transaction to database: %v", err)
+				}
+			}
+		} else {
+			_, err := ts.db.Exec(`
+				INSERT INTO transactions (user_id, order_id, amount, type, timestamp)
+				VALUES ($1, $2, $3, $4, $5)`,
+				userID, orderID, amount, transactionType, transaction.Timestamp)
+			if err != nil {
+				if userID != "system_bot" {
+					log.Printf("Warning: Failed to persist transaction to database: %v", err)
+				}
+			}
+		}
+
 				log.Printf("Warning: Failed to persist transaction to database: %v", err)
 			}
 		}

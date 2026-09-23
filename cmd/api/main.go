@@ -1,13 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
-	"strconv"
+	"strings"
 	"time"
 	"math/rand"
 
+	"github.com/joho/godotenv"
 	"Nexus/internal/api"
 	"Nexus/internal/database"
 	"Nexus/internal/engine"
@@ -112,7 +114,74 @@ func MarketMakerBot(ex *engine.Exchange, symbol string, fallbackPrice uint64, po
 	}
 }
 
+// loadEnvFile manually loads environment variables from a .env file
+func loadEnvFile(filePath string) error {
+	log.Printf("Attempting to load .env file from: %s", filePath)
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Printf("Failed to open .env file: %v", err)
+		return err
+	}
+	defer file.Close()
+
+	var loadedCount int
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Skip comments and empty lines
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Parse key=value pairs
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			// Remove quotes if present
+			value = strings.Trim(value, `"'`)
+			os.Setenv(key, value)
+			loadedCount++
+			log.Printf("Loaded env var: %s=%s", key, value)
+		}
+	}
+
+	log.Printf("Loaded %d environment variables from %s", loadedCount, filePath)
+	return scanner.Err()
+}
+
 func main() {
+	// Load environment variables from .env file
+	// Try multiple locations to ensure it works from any working directory
+	envFiles := []string{".env", "../.env", "../../.env"}
+	var loadedFrom string
+
+	// First try with godotenv
+	for _, file := range envFiles {
+		err := godotenv.Load(file)
+		if err == nil {
+			loadedFrom = file
+			break
+		}
+	}
+
+	// If godotenv failed, try manual loading
+	if loadedFrom == "" {
+		for _, file := range envFiles {
+			err := loadEnvFile(file)
+			if err == nil {
+				loadedFrom = file
+				break
+			}
+		}
+	}
+
+	if loadedFrom != "" {
+		log.Printf("Successfully loaded .env file from: %s", loadedFrom)
+	} else {
+		log.Println("Warning: No .env file found, using environment variables")
+	}
+
 	fmt.Println("Starting Nexus matching engine...")
 
 	// Initialize PostgreSQL database
@@ -183,12 +252,7 @@ func main() {
 	}
 
 	fmt.Println("Starting Price Oracle...")
-	apiKey := os.Getenv("TWELVE_DATA_API_KEY")
-	if apiKey == "" {
-		apiKey = "081f90e89a2447a48c79296b458cfd98" // Fallback to the old hardcoded key for local dev if needed
-		log.Println("Warning: TWELVE_DATA_API_KEY environment variable not set. Using fallback key.")
-	}
-	po := oracle.NewPriceOracle(apiKey)
+	po := oracle.NewPriceOracle("081f90e89a2447a48c79296b458cfd98")
 	symbols := []string{"AAPL", "MSFT", "NVDA", "TSLA"}
 
 	go po.RunPriceUpdater(symbols)
@@ -198,6 +262,9 @@ func main() {
 	go MarketMakerBot(ex, "MSFT", 400, po)
 	go MarketMakerBot(ex, "NVDA", 120, po)
 	go MarketMakerBot(ex, "TSLA", 200, po)
+
+	// Set JWT secret after environment variables are loaded
+	api.SetJWTSecret(os.Getenv("JWT_SECRET"))
 
 	api.StartAPI(ex, profitLossService, postgresUserService)
 }

@@ -1,0 +1,146 @@
+digraph NexusArchitecture {
+	bgcolor="#0b0e11" fontname=Arial rankdir=LR splines=spline
+	node [color="#2b3139" fillcolor="#1e2127" fontcolor="#eaecef" fontname=Arial fontsize=12 shape=box style="rounded,filled"]
+	edge [arrowsize=0.7 color="#848e9c" fontname=Arial fontsize=10]
+	subgraph cluster_frontend {
+		fillcolor="#1e2127" fontcolor="#eaecef" label="Frontend (React / Vite)" style=filled
+		react_app [label="React Application
+(AppWithAuth.jsx)" fillcolor="#2962ff" shape=component]
+		auth_context [label="AuthContext
+(context/AuthContext.jsx)" fillcolor="#0ecb81" shape=component]
+		trading_ui [label="Trading Interface
+(order book, chart, order form)" fillcolor="#2962ff" shape=component]
+		profile_page [label="Profile Page
+(components/ProfilePage.jsx)" fillcolor="#2962ff" shape=component]
+		auth_modal [label="Auth Modal
+(components/Auth.jsx)" fillcolor="#0ecb81" shape=component]
+		react_app -> auth_context [label="auth state"]
+		react_app -> trading_ui [label=renders]
+		react_app -> profile_page [label="routes to /profile"]
+		react_app -> auth_modal [label="shows modal"]
+	}
+	subgraph cluster_api {
+		fillcolor="#1e2127" fontcolor="#eaecef" label="API Layer (Gin)" style=filled
+		api_server [label="API Server
+(cmd/api/main.go)" fillcolor="#f6465d" shape=component]
+		auth_handlers [label="Auth Handlers
+(internal/api/auth_handlers.go)" fillcolor="#f6465d" shape=component]
+		api_handlers [label="API Handlers
+(internal/api/handlers.go)" fillcolor="#f6465d" shape=component]
+		jwt_middleware [label="JWT Middleware
+(auth check on protected routes)" fillcolor="#f6465d" shape=component]
+		api_server -> auth_handlers [label="/auth/*"]
+		api_server -> api_handlers [label="/order /book /profit-loss ..."]
+		api_handlers -> jwt_middleware [label="protected routes" dir=back]
+	}
+	subgraph cluster_engine {
+		fillcolor="#1e2127" fontcolor="#eaecef" label="Core Matching Engine" style=filled
+		exchange [label="Exchange
+(internal/engine/exchange.go)" fillcolor="#0ecb81" shape=component]
+		orderbook [label="OrderBook
+(bids/asks price levels)" fillcolor="#0ecb81" shape=component]
+		matching [label="Matching Logic
+(matchBuy / matchSell)" fillcolor="#0ecb81" shape=component]
+		limit_queue [label="Limit + OrderQueue
+(doubly-linked list per price level)" fillcolor="#0ecb81" shape=component]
+		exchange -> orderbook [label="manages per-symbol books"]
+		orderbook -> matching [label="delegates fills"]
+		orderbook -> limit_queue [label="price-time priority"]
+	}
+	subgraph cluster_services {
+		fillcolor="#1e2127" fontcolor="#eaecef" label=Services style=filled
+		user_service [label="UserService
+(in-memory, system_bot)" fillcolor="#2962ff" shape=component]
+		pg_user_service [label="PostgresUserService
+(auth, balance, ownership)" fillcolor="#2962ff" shape=component]
+		order_service [label="OrderService
+(order persistence)" fillcolor="#2962ff" shape=component]
+		transaction_service [label="TransactionService
+(ledger entries)" fillcolor="#2962ff" shape=component]
+		profit_loss_service [label="ProfitLossService
+(aggregate P&L)" fillcolor="#2962ff" shape=component]
+		cost_basis_service [label="CostBasisService
+(avg-cost, realized P&L)" fillcolor="#2962ff" shape=component]
+	}
+	subgraph cluster_db {
+		fillcolor="#1e2127" fontcolor="#eaecef" label=PostgreSQL style=filled
+		postgres [label="PostgreSQL Database" fillcolor="#4a5568" shape=cylinder]
+	}
+	subgraph cluster_db_schema {
+		fillcolor="#1e2127" fontcolor="#eaecef" label="DB Schema Detail" style=filled
+		rankdir=TB
+		tbl_users [label="users
+────────────
+id PK
+username
+email
+password_hash
+balance
+profit / loss
+stock_ownership (json)
+created_at / updated_at" fillcolor="#4a5568" shape=box]
+		tbl_orders [label="orders
+────────────
+id PK
+user_id FK
+symbol
+order_type
+quantity
+price
+status
+created_at / updated_at" fillcolor="#4a5568" shape=box]
+		tbl_transactions [label="transactions
+────────────
+id PK
+user_id FK
+order_id
+amount
+type
+timestamp" fillcolor="#4a5568" shape=box]
+		tbl_cost_basis [label="cost_basis
+────────────
+user_id PK/FK
+symbol PK
+quantity
+total_cost" fillcolor="#4a5568" shape=box]
+		tbl_orders -> tbl_users [label=user_id style=dashed]
+		tbl_transactions -> tbl_users [label=user_id style=dashed]
+		tbl_cost_basis -> tbl_users [label=user_id style=dashed]
+	}
+	subgraph cluster_external {
+		fillcolor="#1e2127" fontcolor="#eaecef" label=External style=filled
+		price_oracle [label="Price Oracle
+(internal/oracle/oracle.go)" fillcolor="#848e9c" shape=component]
+		twelvedata [label="TwelveData API
+(live market prices)" fillcolor="#848e9c" shape=ellipse]
+		market_bots [label="Market Maker Bots
+(AAPL, MSFT, NVDA, TSLA)" fillcolor="#848e9c" shape=component]
+		users [label="Traders / Users" fillcolor="#848e9c" shape=ellipse]
+		price_oracle -> twelvedata [label="polls prices"]
+	}
+	users -> react_app [label="uses web UI" color="#848e9c"]
+	react_app -> api_server [label="HTTP/REST
+(GET/POST)" color="#f6465d" dir=both]
+	trading_ui -> api_server [label="GET /book
+POST /order" color="#2962ff"]
+	auth_modal -> auth_handlers [label="POST /auth/login
+POST /auth/register" color="#0ecb81"]
+	profile_page -> api_handlers [label="GET /orders/*
+GET /auth/stock-ownership" color="#2962ff"]
+	api_handlers -> exchange [label="RouteOrder()" color="#0ecb81"]
+	api_handlers -> pg_user_service [label="auth / balance" color="#2962ff"]
+	api_handlers -> order_service [label="persist orders" color="#2962ff"]
+	exchange -> user_service [color="#2962ff"]
+	exchange -> pg_user_service [label="settle balance" color="#2962ff"]
+	exchange -> transaction_service [label="record trade" color="#2962ff"]
+	exchange -> cost_basis_service [label="avg cost / realized P&L" color="#2962ff"]
+	exchange -> profit_loss_service [label="update P&L" color="#2962ff"]
+	exchange -> order_service [label="mark completed" color="#2962ff"]
+	pg_user_service -> postgres [color="#2962ff"]
+	order_service -> postgres [color="#2962ff"]
+	transaction_service -> postgres [color="#2962ff"]
+	cost_basis_service -> postgres [color="#2962ff"]
+	postgres -> tbl_users [style=invis]
+	price_oracle -> exchange [label="live reference prices" color="#848e9c"]
+	market_bots -> exchange [label="generated orders" color="#848e9c"]
+}

@@ -88,8 +88,11 @@ func (e *Exchange) RouteOrder(o *Order) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	log.Printf("DEBUG: [EXCHANGE] Starting processing for order %s, symbol=%s, dbOrderID=%d",
-		o.Id, o.Symbol, o.DBOrderID)
+	// Only log for non-system orders to reduce noise
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: [EXCHANGE] Starting processing for order %s, symbol=%s, dbOrderID=%d",
+			o.Id, o.Symbol, o.DBOrderID)
+	}
 
 	// Get or create the order book for the symbol
 	book, ok := e.books[o.Symbol]
@@ -129,30 +132,136 @@ func (e *Exchange) RouteOrder(o *Order) {
 		// Checking it here would falsely reject orders since the balance is already deducted.
 	}
 
-	log.Printf("DEBUG: Processing order %s: symbol=%s, isBuy=%t, quantity=%d, price=%d, user=%s, dbOrderID=%d",
-		o.Id, o.Symbol, o.IsBuy, o.Quantity, o.Price, o.UserID, o.DBOrderID)
+if o.IsBuy {
+        requiredBalance := float64(o.Quantity) * float64(o.Price)
+        if user.Balance < requiredBalance {
+            log.Printf("WARNING: Order %s rejected - insufficient balance. Required: $%.2f, Available: $%.2f",
+                o.Id, requiredBalance, user.Balance)
+            return
+        }
+    }
+
+	// Store the original quantity before processing
+	originalQuantity := o.Quantity
+
+	// Only log detailed processing for non-system orders
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: Processing order %s: symbol=%s, isBuy=%t, quantity=%d, price=%d, user=%s, dbOrderID=%d",
+			o.Id, o.Symbol, o.IsBuy, o.Quantity, o.Price, o.UserID, o.DBOrderID)
+	}
+
 
 	fills := book.ProcessOrder(o)
 
 	// Dispatch fills to async settlement worker
 	for _, fill := range fills {
-		e.settlementChan <- SettlementJob{
-			Type:            "TRADE",
-			MakerOrder:      *fill.MakerOrder, // pass by value
-			TakerOrder:      *o,               // pass by value
-			MatchedQuantity: fill.Quantity,
-			Price:           fill.Price,
+		e.settleMakerFill(fill)
+	}
+
+	// Only log post-processing details for non-system orders to reduce noise
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: After processing order %s: remaining quantity=%d, matched quantity=%d",
+			o.Id, o.Quantity, originalQuantity - o.Quantity)
+
+		// The order has already been placed in the order book by ProcessOrder if there was remaining quantity
+		if o.Quantity > 0 {
+			log.Printf("DEBUG: Order %s placed in order book with remaining quantity %d", o.Id, o.Quantity)
+		} else {
+			log.Printf("DEBUG: Order %s was fully matched, not adding to order book", o.Id)
 		}
 	}
 
-	// Dispatch status update for the taker order
-	e.settlementChan <- SettlementJob{
-		Type:              "UPDATE_TAKER_STATUS",
-		TakerOrder:        *o,
-		TakerRemainingQty: int(o.Quantity),
+    // Record transaction
+    transactionType := "trade"
+    amount := float64(originalQuantity - o.Quantity) * float64(o.Price)
+    if !o.IsBuy {
+        amount = -amount
+    }
+    // For PostgreSQL users, ensure we use the same user ID format as the user service
+    transactionUserID := o.UserID
+    if numericUserID, err := strconv.Atoi(o.UserID); err == nil && numericUserID > 0 {
+        // For PostgreSQL users, use the numeric ID to match user service format
+        transactionUserID = strconv.Itoa(numericUserID)
+    }
+    e.transactionService.RecordTransaction(transactionUserID, o.Id, transactionType, amount)
+
+	// Update user balance
+	if o.IsBuy {
+		user.Balance -= float64(originalQuantity - o.Quantity) * float64(o.Price)
+	} else {
+		user.Balance += float64(originalQuantity - o.Quantity) * float64(o.Price)
 	}
 
-}
+	// Track cost basis and realized P&L for PostgreSQL users
+	matchedQuantity := originalQuantity - o.Quantity
+	if matchedQuantity > 0 {
+		if numericUserID, err := strconv.Atoi(o.UserID); err == nil && numericUserID > 0 {
+			if o.IsBuy {
+				// For buy orders, record the cost basis
+				err := e.costBasisService.RecordBuy(numericUserID, o.Symbol, matchedQuantity, float64(o.Price))
+				if err != nil {
+					log.Printf("Warning: Failed to record cost basis for buy order: %v", err)
+				}
+			} else {
+				// For sell orders, calculate realized P&L and update profit/loss
+				realized, err := e.costBasisService.RecordSell(numericUserID, o.Symbol, matchedQuantity, float64(o.Price))
+				if err != nil {
+					log.Printf("Warning: Failed to record cost basis for sell order: %v", err)
+				} else if realized != 0 {
+					// Update realized P&L
+					err := e.postgresUserService.AddRealizedPL(numericUserID, realized)
+					if err != nil {
+						log.Printf("Warning: Failed to update realized P&L: %v", err)
+					} else {
+						log.Printf("INFO: Realized P&L for user %d: $%.2f (symbol: %s, quantity: %d, sellPrice: $%.2f)",
+							numericUserID, realized, o.Symbol, matchedQuantity, float64(o.Price))
+					}
+				}
+			}
+		}
+	}
+
+	// Update order status in database if this is a PostgreSQL user
+	// Only log order status debug for non-system orders
+	if o.DBOrderID > 0 || o.UserID != "system_bot" {
+		log.Printf("DEBUG: [ORDER STATUS] Checking order status update for order %s, DBOrderID=%d, Quantity=%d, orderService=%v",
+			o.Id, o.DBOrderID, o.Quantity, e.orderService != nil)
+	}
+
+	if e.orderService != nil {
+		// Debug: Log the order details to help diagnose completion issues
+		// Only log completion check debug for non-system orders
+		if o.DBOrderID > 0 || o.UserID != "system_bot" {
+			log.Printf("DEBUG: [ORDER COMPLETION CHECK] Order %s: Symbol=%s, UserID=%s, DBOrderID=%d, Quantity=%d, IsBuy=%t, OriginalQuantity=%d",
+				o.Id, o.Symbol, o.UserID, o.DBOrderID, o.Quantity, o.IsBuy, originalQuantity)
+		}
+		// Check if this order was fully matched (quantity is 0)
+		if o.Quantity == 0 {
+			log.Printf("INFO: [ORDER COMPLETION] Order %s was fully matched (quantity=%d), initiating completion process", o.Id, o.Quantity)
+			// Mark the order as completed in the database
+			if o.DBOrderID > 0 {
+				log.Printf("INFO: Order %d was fully matched, updating status to completed", o.DBOrderID)
+				err := e.orderService.CompleteOrder(o.DBOrderID)
+				if err != nil {
+					log.Printf("Warning: Failed to update order status for order %d: %v", o.DBOrderID, err)
+				} else {
+					log.Printf("INFO: Successfully updated order %d status to completed", o.DBOrderID)
+				}
+			} else {
+				// Handle orders with DBOrderID=0 (system_bot or failed creation)
+				log.Printf("WARNING: Order %s was fully matched but has DBOrderID=0, attempting alternative status update", o.Id)
+				// Try to find and update the order by other identifiers
+				if numericUserID, err := strconv.Atoi(o.UserID); err == nil && numericUserID > 0 {
+					// Try to update by user ID, symbol, price, and timestamp
+					err := e.orderService.CompleteOrderByDetails(numericUserID, o.Symbol, float64(o.Price), o.TimeStamp)
+					if err != nil {
+						log.Printf("Warning: Failed to update order status for system_bot order: %v", err)
+					} else {
+						log.Printf("INFO: Successfully updated system_bot order status using alternative method")
+					}
+				}
+			}
+
 
 func (e *Exchange) processSettlementJob(job SettlementJob) {
 	if job.Type == "TRADE" {

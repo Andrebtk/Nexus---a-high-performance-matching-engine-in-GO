@@ -1,4 +1,4 @@
-package api 
+package api
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 	"Nexus/internal/services"
 	"sort"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 	"log"
@@ -556,8 +557,13 @@ func GetStockOwnershipHandler(postgresUserService *services.PostgresUserService,
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		// Get allowed origin from environment variable, default to wildcard for local development
+		allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+		if allowedOrigin == "" {
+			// Default to wildcard for local development
+			allowedOrigin = "*"
+		}
+		c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
@@ -613,9 +619,12 @@ func StartAPI(ex *engine.Exchange, pls *services.ProfitLossService, postgresUser
 	}
     */
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	router.Run(":" + port)
+port := os.Getenv("PORT")
+if port == "" {
+    port = "8080" // Port par défaut pour le développement local
+}
+
+// Remplacer router.Run("localhost:8080") par :
+router.Run("0.0.0.0:" + port)
+
 }
