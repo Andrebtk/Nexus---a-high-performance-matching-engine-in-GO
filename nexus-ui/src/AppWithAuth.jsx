@@ -370,7 +370,7 @@ function AppContent() {
           ) : (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: theme.textMuted }}>
               <Spinner size={30} />
-              <div style={{ marginTop: '12px' }}>Gathering market data for {activeSymbol}...</div>
+              <div style={{ marginTop: '12px' }}>Gathering market data for {activeSymbol}... (Server starting up)</div>
             </div>
           )}
         </div>
@@ -380,7 +380,7 @@ function AppContent() {
           {/* Profit Card */}
           <div style={{ flex: '1 1 300px', border: `1px solid ${theme.buy}`, padding: '20px', borderRadius: '8px', backgroundColor: theme.panel }}>
             <div style={{ fontSize: '12px', color: theme.textMuted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px' }}>
-              {user ? `${user.username}'s Profit` : 'Total Profit'}
+              {user ? 'Your Profit' : 'Total Profit'}
             </div>
             <div style={{ fontSize: '28px', fontWeight: 'bold', color: theme.buy }}>
               {profitLoss.loading ? <Spinner size={24} color={theme.buy} /> : `$${Math.round(profitLoss.profit)}`}
@@ -390,7 +390,7 @@ function AppContent() {
           {/* Loss Card */}
           <div style={{ flex: '1 1 300px', border: `1px solid ${theme.sell}`, padding: '20px', borderRadius: '8px', backgroundColor: theme.panel }}>
             <div style={{ fontSize: '12px', color: theme.textMuted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px' }}>
-              {user ? `${user.username}'s Loss` : 'Total Loss'}
+              {user ? 'Your Loss' : 'Total Loss'}
             </div>
             <div style={{ fontSize: '28px', fontWeight: 'bold', color: theme.sell }}>
               {profitLoss.loading ? <Spinner size={24} color={theme.sell} /> : `$${Math.round(Math.abs(profitLoss.loss))}`}
@@ -400,7 +400,7 @@ function AppContent() {
           {/* Net Result Card */}
           <div style={{ flex: '1 1 300px', border: `1px solid ${profitLoss.net >= 0 ? theme.buy : theme.sell}`, padding: '20px', borderRadius: '8px', backgroundColor: theme.panel }}>
             <div style={{ fontSize: '12px', color: theme.textMuted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '10px' }}>
-              {user ? `${user.username}'s Net Result` : 'Net Result'}
+              {user ? 'Your Net Result' : 'Net Result'}
             </div>
             <div style={{ fontSize: '28px', fontWeight: 'bold', color: profitLoss.net >= 0 ? theme.buy : theme.sell }}>
               {profitLoss.loading ? <Spinner size={24} color={profitLoss.net >= 0 ? theme.buy : theme.sell} /> : (
